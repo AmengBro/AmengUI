@@ -15,8 +15,21 @@ const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
 const SETTINGS_FILE = path.join(CONFIG_DIR, 'settings.json');
 
 // 默认用户列表
+// 如需添加更多用户，请编辑此列表
 const defaultUsers = [
-  { id: 1, username: 'Admin', password: '', avatar: null }
+  { 
+    id: 1, 
+    username: '管理员', 
+    password: '123456',  // 管理员密码
+    avatar: null       // 自定义头像路径，如：'C:/path/to/avatar.png'
+  },
+  // 示例：添加更多用户
+  // { 
+  //   id: 2, 
+  //   username: '用户2', 
+  //   password: 'password2', 
+  //   avatar: 'C:/path/to/avatar2.png' 
+  // },
 ];
 
 // 默认应用设置

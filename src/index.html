@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Windows 11 Login</title>
+    <title>登录</title>
     <link rel="stylesheet" href="index.css" />
   </head>
   <body>
@@ -19,7 +19,7 @@
         <div id="username-display" class="username"></div>
         <!-- 密码输入区域 -->
         <div id="password-section">
-          <input type="password" id="password-input" placeholder="PIN or password" />
+          <input type="password" id="password-input" placeholder="请输入密码" />
           <!-- 密码显示/隐藏切换按钮 -->
           <button id="toggle-password" class="toggle-btn">
             <svg id="eye-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -33,19 +33,25 @@
         <div id="error-msg" class="error-msg"></div>
         <!-- 选项区域（背景更改按钮已隐藏） -->
         <div class="options" style="display: none;">
-          <button id="change-bg-btn" class="small-btn">Change background</button>
+          <button id="change-bg-btn" class="small-btn">更换背景</button>
         </div>
       </div>
     </div>
     <!-- 用户选择面板 -->
     <div id="users-panel" class="users-panel hidden">
-      <div class="users-header">Other users</div>
+      <div class="users-header">选择用户</div>
       <div id="users-list" class="users-list"></div>
     </div>
     <!-- 底部栏 -->
     <div class="bottom-bar">
       <div class="left-controls">
-        <button class="control-btn" id="power-btn">⏻</button>
+        <button class="control-btn" id="power-btn" title="电源">⏻</button>
+        <button class="control-btn" id="switch-user-btn" title="切换用户">
+          <!-- 切换用户图标 - 用户图标 -->
+          <svg viewBox="0 0 24 24" fill="currentColor" class="icon">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+        </button>
       </div>
       <!-- 时间日期显示 -->
       <div class="datetime">

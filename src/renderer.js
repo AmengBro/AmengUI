@@ -41,6 +41,23 @@ async function loadData() {
 
   // 渲染用户列表
   renderUserList();
+  
+  // 更新切换用户按钮可见性
+  updateSwitchUserButtonVisibility();
+}
+
+/**
+ * 更新切换用户按钮的可见性
+ */
+function updateSwitchUserButtonVisibility() {
+  const switchBtn = document.getElementById('switch-user-btn');
+  if (switchBtn) {
+    if (users.length > 1) {
+      switchBtn.style.display = 'flex';
+    } else {
+      switchBtn.style.display = 'none';
+    }
+  }
 }
 
 /**
@@ -61,8 +78,17 @@ function setupEventListeners() {
   // 背景更改按钮（已隐藏，保留功能）
   document.getElementById('change-bg-btn').addEventListener('click', changeBackground);
   
-  // 用户名点击显示用户选择面板
-  document.getElementById('username-display').addEventListener('click', toggleUserPanel);
+  // 切换用户按钮
+  document.getElementById('switch-user-btn').addEventListener('click', toggleUserPanel);
+  
+  // 点击其他区域关闭用户面板
+  document.addEventListener('click', (e) => {
+    const userPanel = document.getElementById('users-panel');
+    const switchBtn = document.getElementById('switch-user-btn');
+    if (!userPanel.contains(e.target) && !switchBtn.contains(e.target)) {
+      userPanel.classList.add('hidden');
+    }
+  });
 }
 
 /**
@@ -75,6 +101,32 @@ function selectUser(user) {
   document.getElementById('password-input').value = '';
   document.getElementById('error-msg').textContent = '';
   document.getElementById('users-panel').classList.add('hidden');
+  
+  // 更新用户头像
+  updateUserAvatar(user);
+  
+  // 更新切换用户按钮可见性
+  updateSwitchUserButtonVisibility();
+}
+
+/**
+ * 更新用户头像显示
+ * @param {Object} user - 用户对象
+ */
+function updateUserAvatar(user) {
+  const avatarContainer = document.querySelector('.user-avatar');
+  
+  if (user.avatar) {
+    // 如果用户有自定义头像，显示图片
+    avatarContainer.innerHTML = `<img src="${user.avatar}" alt="用户头像" />`;
+  } else {
+    // 没有自定义头像，显示默认图标
+    avatarContainer.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+      </svg>
+    `;
+  }
 }
 
 /**
@@ -84,9 +136,17 @@ function renderUserList() {
   const container = document.getElementById('users-list');
   container.innerHTML = '';
   
+  // 标题根据用户数量显示不同内容
+  const headerText = users.length > 1 ? '选择用户' : '其他用户';
+  document.querySelector('.users-header').textContent = headerText;
+  
   users.forEach(user => {
     const item = document.createElement('div');
     item.className = 'user-item';
+    // 标记当前选中的用户
+    if (currentUser && currentUser.id === user.id) {
+      item.classList.add('active');
+    }
     item.innerHTML = `
       <div class="user-item-avatar">
         <svg viewBox="0 0 24 24" fill="currentColor" style="width:24px;height:24px;">
@@ -94,6 +154,7 @@ function renderUserList() {
         </svg>
       </div>
       <div class="user-item-name">${user.username}</div>
+      ${currentUser && currentUser.id === user.id ? '<span style="color: #666; font-size: 12px; margin-left: auto;">✓</span>' : ''}
     `;
     item.addEventListener('click', () => selectUser(user));
     container.appendChild(item);
@@ -105,7 +166,13 @@ function renderUserList() {
  */
 function toggleUserPanel() {
   const panel = document.getElementById('users-panel');
-  panel.classList.toggle('hidden');
+  // 只有多个用户时才显示面板
+  if (users.length > 1) {
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+      renderUserList(); // 刷新用户列表
+    }
+  }
 }
 
 /**
@@ -121,10 +188,10 @@ async function handleLogin() {
   if (result) {
     // 登录成功
     document.getElementById('error-msg').textContent = '';
-    alert('Login successful!');
+    alert('登录成功！');
   } else {
     // 登录失败，显示错误信息
-    document.getElementById('error-msg').textContent = 'The password is incorrect.';
+    document.getElementById('error-msg').textContent = '密码错误，请重试。';
   }
 }
 
@@ -168,7 +235,11 @@ function updateDateTime() {
   const minutes = now.getMinutes().toString().padStart(2, '0');
   timeEl.textContent = `${hours}:${minutes}`;
 
-  // 格式化日期
-  const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-  dateEl.textContent = now.toLocaleDateString('en-US', options);
+  // 格式化日期为中文格式
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const weekday = weekdays[now.getDay()];
+  dateEl.textContent = `${year}年${month}月${day}日 ${weekday}`;
 }

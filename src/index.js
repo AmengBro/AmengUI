@@ -3,15 +3,80 @@
  * 负责创建窗口、处理 IPC 通信和系统功能
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('node:path');
 const fs = require('fs').promises;
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const config = require('./config');
 
-// 将 exec 转换为 Promise 形式
 const execAsync = promisify(exec);
+
+/**
+ * 使用 Windows API 强制将窗口置底
+ * @param {number} hwnd - 窗口句柄
+ */
+async function forceWindowToBottom(hwnd) {
+  if (process.platform !== 'win32') return;
+  
+  console.log(`=== forceWindowToBottom start ===`);
+  console.log(`hwnd (decimal): ${hwnd}`);
+  console.log(`hwnd (hex): 0x${hwnd.toString(16)}`);
+  
+  const scriptPath = path.join(__dirname, '../scripts/setbottom.ps1');
+  
+  try {
+    // 确保脚本目录存在
+    await fs.mkdir(path.dirname(scriptPath), { recursive: true });
+    
+    // 执行脚本（使用 -ExecutionPolicy Bypass，并传递窗口句柄参数）
+    const command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -hwnd ${hwnd}`;
+    console.log(`Executing command: ${command}`);
+    
+    const { stdout, stderr } = await execAsync(command);
+    console.log('PowerShell stdout:', stdout);
+    if (stderr) console.log('PowerShell stderr:', stderr);
+    
+    console.log(`=== forceWindowToBottom end (success) ===`);
+    
+  } catch (error) {
+    console.error(`=== forceWindowToBottom end (failed) ===`);
+    console.error('PowerShell execution failed:', error.message);
+    console.error('Error code:', error.code);
+    if (error.stdout) console.error('Partial stdout:', error.stdout);
+    if (error.stderr) console.error('Partial stderr:', error.stderr);
+  }
+}
+
+/**
+ * 使用命令行工具 nircmd 设置窗口置底（备选方案）
+ */
+async function forceWindowToBottomWithNircmd(hwnd) {
+  if (process.platform !== 'win32') return;
+  
+  console.log(`=== forceWindowToBottomWithNircmd start ===`);
+  console.log(`hwnd: ${hwnd}`);
+  
+  try {
+    // 尝试使用 nircmd（如果可用）
+    const nircmdPath = 'nircmd.exe';
+    const command = `"${nircmdPath}" win settopmost handle ${hwnd} 0`;
+    console.log(`Trying nircmd: ${command}`);
+    
+    try {
+      const { stdout, stderr } = await execAsync(command);
+      console.log('nircmd stdout:', stdout);
+      if (stderr) console.log('nircmd stderr:', stderr);
+    } catch (e) {
+      console.log('nircmd not available, skipping');
+    }
+    
+    console.log(`=== forceWindowToBottomWithNircmd end ===`);
+    
+  } catch (error) {
+    console.error('forceWindowToBottomWithNircmd failed:', error.message);
+  }
+}
 
 // 处理 Windows 安装/卸载时的快捷方式
 if (require('electron-squirrel-startup')) {
@@ -25,15 +90,28 @@ let mainWindow = null;
  * 创建应用主窗口
  */
 const createWindow = () => {
+  // 获取屏幕尺寸
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: width,
+    height: height,
     frame: false,           // 无边框窗口
-    fullscreen: true,       // 全屏模式
+    fullscreen: false,      // 不使用全屏模式（避免影响 Z 顺序）
+    maximizable: false,     // 禁止最大化
+    minimizable: false,     // 禁止最小化
+    skipTaskbar: true,      // 不在任务栏显示
+    resizable: false,       // 禁止调整大小
+    alwaysOnBottom: true,   // 初始设置置底
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+
+  // 设置窗口位置和大小覆盖整个屏幕
+  mainWindow.setPosition(0, 0);
+  mainWindow.setSize(width, height);
 
   // 加载登录界面
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -41,8 +119,30 @@ const createWindow = () => {
   // 打开开发者工具（调试用）
   mainWindow.webContents.openDevTools();
 
-  // 设置窗口始终置底（在窗口创建后显式调用确保生效）
+  // 在窗口创建后立即设置置底
   mainWindow.setAlwaysOnBottom(true);
+  
+  // 监听窗口显示事件
+  mainWindow.on('show', () => {
+    console.log('Window shown');
+    setWindowToBottom();
+  });
+
+  // 监听窗口就绪事件
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('Page loaded');
+    setWindowToBottom();
+  });
+
+  // 定期检查并保持置底状态
+  setInterval(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isAlwaysOnBottom()) {
+        console.log('Window is not on bottom, fixing...');
+        setWindowToBottom();
+      }
+    }
+  }, 2000);
 
   // 监听键盘事件，ESC 键关闭窗口
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -51,6 +151,81 @@ const createWindow = () => {
     }
   });
 };
+
+/**
+ * 设置窗口置底的综合方法
+ */
+async function setWindowToBottom() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  
+  try {
+    console.log(`=== setWindowToBottom ===`);
+    
+    // 方法1: 使用 Electron API
+    console.log('Calling setAlwaysOnBottom(true, "normal")');
+    mainWindow.setAlwaysOnBottom(true, 'normal');
+    
+    // 检查 Electron API 是否生效
+    const isBottom = mainWindow.isAlwaysOnBottom();
+    console.log(`isAlwaysOnBottom after call: ${isBottom}`);
+    
+    // 方法2: 通过 PowerShell 调用 Windows API
+    const hwnd = mainWindow.getNativeWindowHandle();
+    console.log(`hwnd buffer length: ${hwnd.length}`);
+    console.log(`hwnd buffer:`, hwnd);
+    
+    // 正确获取窗口句柄（兼容 32 位和 64 位系统）
+    let hwndNumber;
+    if (hwnd.length >= 8) {
+      // 64 位系统
+      hwndNumber = hwnd.readUInt64LE(0);
+      console.log(`Window handle (64-bit): ${hwndNumber} (0x${hwndNumber.toString(16)})`);
+    } else {
+      // 32 位系统
+      hwndNumber = hwnd.readUInt32LE(0);
+      console.log(`Window handle (32-bit): ${hwndNumber} (0x${hwndNumber.toString(16)})`);
+    }
+    
+    // 调用 PowerShell 脚本
+    await forceWindowToBottom(hwndNumber);
+    
+    // 额外尝试 nircmd 方法
+    await forceWindowToBottomWithNircmd(hwndNumber);
+    
+    // 再次检查状态
+    setTimeout(() => {
+      console.log(`Final isAlwaysOnBottom: ${mainWindow.isAlwaysOnBottom()}`);
+    }, 1000);
+    
+  } catch (error) {
+    console.error('Error setting window to bottom:', error.message);
+    console.error('Error stack:', error.stack);
+  }
+}
+
+/**
+ * 延迟执行窗口置底（确保窗口完全就绪）
+ */
+function forceWindowToBottomDelayed() {
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    
+    const hwnd = mainWindow.getNativeWindowHandle();
+    const hwndNumber = hwnd.readUInt32LE(0); // 正确获取 32 位窗口句柄
+    console.log(`Window handle: 0x${hwndNumber.toString(16)}`);
+    
+    // 先尝试 Electron API
+    mainWindow.setAlwaysOnBottom(true, 'normal');
+    
+    // 再使用 Windows API 强制置底
+    forceWindowToBottom(hwndNumber);
+    
+    // 再次确认置底状态
+    setTimeout(() => {
+      console.log('Always on bottom status:', mainWindow.isAlwaysOnBottom());
+    }, 500);
+  }, 500);
+}
 
 // Electron 初始化完成后创建窗口
 app.whenReady().then(() => {
