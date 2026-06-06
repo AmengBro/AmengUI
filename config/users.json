@@ -1,30 +1,34 @@
-[
-  {
-    "id": 1,
-    "username": "Admin",
-    "password": "",
-    "avatar": null
-  },  {
-    "id": 2,
-    "username": "Ad",
-    "password": "",
-    "avatar": null
-  },  {
-    "id": 3,
-    "username": "root",
-    "password": "",
-    "avatar": null
-  },  {
-    "id": 4,
-    "username": "root1",
-    "password": "",
-    "avatar": null
-  },  {
-    "id": 5,
-    "username": "root2",
-    "password": "",
-    "avatar": null
-  }
-
-
-]
+{
+  "users": [
+    {
+      "userid": 1,
+      "username": "Admin",
+      "photo": null,
+      "permi": "root"
+    },
+    {
+      "userid": 2,
+      "username": "Ad",
+      "photo": null,
+      "permi": "user"
+    },
+    {
+      "userid": 3,
+      "username": "root",
+      "photo": null,
+      "permi": "root"
+    },
+    {
+      "userid": 4,
+      "username": "root1",
+      "photo": null,
+      "permi": "user"
+    },
+    {
+      "userid": 5,
+      "username": "root2",
+      "photo": null,
+      "permi": "user"
+    }
+  ]
+}

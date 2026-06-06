@@ -228,7 +228,9 @@ function forceWindowToBottomDelayed() {
 }
 
 // Electron 初始化完成后创建窗口
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // 初始化配置：迁移旧数据并确保用户目录存在
+  await initConfig();
   createWindow();
 
   // macOS 特性：点击 dock 图标时重新创建窗口
@@ -238,6 +240,44 @@ app.whenReady().then(() => {
     }
   });
 });
+
+/**
+ * 初始化配置：迁移旧数据并确保用户目录存在
+ */
+async function initConfig() {
+  try {
+    const users = await config.getUsers();
+    
+    // 为所有现有用户创建配置目录
+    for (const user of users) {
+      await config.ensureUserDir(user.id);
+    }
+    
+    // 迁移旧的 settings.json 到第一个用户的配置（如果存在旧数据且用户目录没有配置）
+    const oldSettingsPath = path.join(__dirname, '../config/settings.json');
+    try {
+      const oldData = await fs.readFile(oldSettingsPath, 'utf8');
+      const oldSettings = JSON.parse(oldData);
+      
+      if (users.length > 0 && oldSettings.background) {
+        // 检查用户配置是否已存在
+        const userConfig = await config.getUserConfig(users[0].id);
+        if (!userConfig.background && oldSettings.background) {
+          // 迁移旧设置到用户配置
+          userConfig.background = oldSettings.background;
+          userConfig.theme = oldSettings.theme || 'dark';
+          userConfig.accentColor = oldSettings.accentColor || '#0078D4';
+          await config.saveUserConfig(users[0].id, userConfig);
+          console.log('Migrated old settings to user config');
+        }
+      }
+    } catch {
+      // 没有旧设置文件，无需迁移
+    }
+  } catch (error) {
+    console.error('Failed to init config:', error);
+  }
+}
 
 // 所有窗口关闭时退出应用（macOS 除外）
 app.on('window-all-closed', () => {
@@ -253,8 +293,8 @@ ipcMain.handle('config:getUsers', async () => {
   return await config.getUsers();
 });
 
-ipcMain.handle('config:getSettings', async () => {
-  return await config.getSettings();
+ipcMain.handle('config:getSettings', async (_, userId) => {
+  return await config.getSettings(userId);
 });
 
 ipcMain.handle('config:verifyUser', async (_, username, password) => {
@@ -273,16 +313,16 @@ ipcMain.handle('config:deleteUser', async (_, id) => {
   return await config.deleteUser(id);
 });
 
-ipcMain.handle('config:setBackground', async (_, imagePath) => {
-  return await config.setBackground(imagePath);
+ipcMain.handle('config:setBackground', async (_, imagePath, userId) => {
+  return await config.setBackground(imagePath, userId);
 });
 
-ipcMain.handle('config:setTheme', async (_, theme) => {
-  return await config.setTheme(theme);
+ipcMain.handle('config:setTheme', async (_, theme, userId) => {
+  return await config.setTheme(theme, userId);
 });
 
-ipcMain.handle('config:setAccentColor', async (_, color) => {
-  return await config.setAccentColor(color);
+ipcMain.handle('config:setAccentColor', async (_, color, userId) => {
+  return await config.setAccentColor(color, userId);
 });
 
 // 对话框相关

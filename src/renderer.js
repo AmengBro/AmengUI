@@ -9,6 +9,8 @@ let currentUser = null;
 let users = [];
 // 应用设置
 let settings = null;
+// 遮罩窗回调
+let modalCallback = null;
 
 /**
  * 页面加载完成后初始化
@@ -26,17 +28,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadData() {
   // 获取用户列表
   users = await window.electronAPI.config.getUsers();
-  // 获取应用设置
-  settings = await window.electronAPI.config.getSettings();
 
   // 如果有用户，默认选中第一个
   if (users.length > 0) {
-    selectUser(users[0]);
-  }
-
-  // 如果设置了自定义背景，应用背景
-  if (settings.background) {
-    setBackground(settings.background);
+    await selectUser(users[0]);
   }
 
   // 渲染用户列表
@@ -81,26 +76,146 @@ function setupEventListeners() {
   // 切换用户按钮
   document.getElementById('switch-user-btn').addEventListener('click', toggleUserPanel);
   
-  // 点击其他区域关闭用户面板
+  // 电源按钮
+  document.getElementById('power-btn').addEventListener('click', togglePowerMenu);
+  
+  // 电源菜单项
+  document.getElementById('btn-shutdown').addEventListener('click', handleShutdown);
+  document.getElementById('btn-restart').addEventListener('click', handleRestart);
+  document.getElementById('btn-shell').addEventListener('click', handleShellMode);
+  
+  // 点击其他区域关闭面板
   document.addEventListener('click', (e) => {
     const userPanel = document.getElementById('users-panel');
     const switchBtn = document.getElementById('switch-user-btn');
+    const powerMenu = document.getElementById('power-menu');
+    const powerBtn = document.getElementById('power-btn');
+    
     if (!userPanel.contains(e.target) && !switchBtn.contains(e.target)) {
       userPanel.classList.add('hidden');
     }
+    
+    if (!powerMenu.contains(e.target) && !powerBtn.contains(e.target)) {
+      powerMenu.classList.add('hidden');
+    }
   });
+  
+  // 遮罩窗按钮事件
+  setupModal();
+}
+
+/**
+ * 设置遮罩窗事件
+ */
+function setupModal() {
+  const modalOverlay = document.getElementById('modal-overlay');
+  const confirmBtn = document.getElementById('modal-btn-confirm');
+  const cancelBtn = document.getElementById('modal-btn-cancel');
+  
+  confirmBtn.addEventListener('click', () => {
+    modalOverlay.classList.add('hidden');
+    if (modalCallback) {
+      modalCallback(true);
+      modalCallback = null;
+    }
+  });
+  
+  cancelBtn.addEventListener('click', () => {
+    modalOverlay.classList.add('hidden');
+    modalCallback = null;
+  });
+  
+  modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) {
+      modalOverlay.classList.add('hidden');
+      modalCallback = null;
+    }
+  });
+}
+
+/**
+ * 显示遮罩确认窗
+ * @param {string} message - 显示的消息
+ * @param {Function} callback - 回调函数，参数为是否确认
+ * @param {boolean} showCancel - 是否显示取消按钮，默认true
+ */
+function showModal(message, callback, showCancel = true) {
+  modalCallback = callback;
+  const modalOverlay = document.getElementById('modal-overlay');
+  const modalMessage = document.getElementById('modal-message');
+  const cancelBtn = document.getElementById('modal-btn-cancel');
+  modalMessage.textContent = message;
+  
+  if (showCancel) {
+    cancelBtn.classList.remove('hidden');
+  } else {
+    cancelBtn.classList.add('hidden');
+  }
+  
+  modalOverlay.classList.remove('hidden');
+}
+
+/**
+ * 切换电源菜单的显示/隐藏
+ */
+function togglePowerMenu() {
+  const menu = document.getElementById('power-menu');
+  const userPanel = document.getElementById('users-panel');
+  userPanel.classList.add('hidden');
+  menu.classList.toggle('hidden');
+}
+
+/**
+ * 处理关机
+ */
+function handleShutdown() {
+  document.getElementById('power-menu').classList.add('hidden');
+  showModal('确定要关机吗？', () => {
+    showModal('正在关机...', () => {}, false);
+  }, false);
+}
+
+/**
+ * 处理重新启动
+ */
+function handleRestart() {
+  document.getElementById('power-menu').classList.add('hidden');
+  showModal('确定要重启吗？', () => {
+    showModal('你正在重启...', () => {}, false);
+  }, false);
+}
+
+/**
+ * 处理Shell模式
+ */
+function handleShellMode() {
+  document.getElementById('power-menu').classList.add('hidden');
+  showModal('确定要进入Shell模式吗？', () => {
+    showModal('正在进入Shell模式...', () => {}, false);
+  }, false);
 }
 
 /**
  * 选择用户并更新界面
  * @param {Object} user - 用户对象
  */
-function selectUser(user) {
+async function selectUser(user) {
   currentUser = user;
   document.getElementById('username-display').textContent = user.username;
   document.getElementById('password-input').value = '';
   document.getElementById('error-msg').textContent = '';
   document.getElementById('users-panel').classList.add('hidden');
+  
+  // 加载该用户的个性化设置
+  settings = await window.electronAPI.config.getSettings(user.id);
+  
+  // 如果设置了自定义背景，应用背景
+  if (settings.background) {
+    applyBackground(settings.background);
+  } else {
+    // 没有自定义背景，恢复默认
+    document.body.style.backgroundImage = '';
+  }
   
   // 更新用户头像
   updateUserAvatar(user);
@@ -207,10 +322,11 @@ function togglePassword() {
  * 打开文件选择对话框更改背景图片
  */
 async function changeBackground() {
+  if (!currentUser) return;
   const imagePath = await window.electronAPI.dialog.selectImage();
   if (imagePath) {
-    await window.electronAPI.config.setBackground(imagePath);
-    setBackground(imagePath);
+    await window.electronAPI.config.setBackground(imagePath, currentUser.id);
+    applyBackground(imagePath);
   }
 }
 
@@ -218,7 +334,7 @@ async function changeBackground() {
  * 设置背景图片
  * @param {string} imagePath - 图片路径
  */
-function setBackground(imagePath) {
+function applyBackground(imagePath) {
   document.body.style.backgroundImage = `url('file://${imagePath.replace(/\\/g, '/')}')`;
 }
 

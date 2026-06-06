@@ -1,0 +1,13 @@
+{
+  "login": {
+    "userid": 3,
+    "username": "root",
+    "photo": null,
+    "permi": "root"
+  },
+  "profile": {
+    "loginbg": null,
+    "themebd": "dark",
+    "themecolor": "#0078D4"
+  }
+}

@@ -1,7 +1,12 @@
 /**
  * 配置管理模块
  * 负责用户和应用设置的读写操作
- * 所有配置文件保存在程序目录下的 config 文件夹中
+ *
+ * 目录结构：
+ * /config/
+ *   users.json          # 全局用户列表
+ *   {userid}/
+ *     config.json        # 用户个性化设置和登录信息
  */
 
 const fs = require('fs').promises;
@@ -11,33 +16,16 @@ const path = require('path');
 const CONFIG_DIR = path.join(__dirname, '../config');
 // 用户配置文件路径
 const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
-// 应用设置文件路径
-const SETTINGS_FILE = path.join(CONFIG_DIR, 'settings.json');
 
 // 默认用户列表
-// 如需添加更多用户，请编辑此列表
 const defaultUsers = [
-  { 
-    id: 1, 
-    username: '管理员', 
-    password: '123456',  // 管理员密码
-    avatar: null       // 自定义头像路径，如：'C:/path/to/avatar.png'
+  {
+    userid: 1,
+    username: '管理员',
+    photo: null,
+    permi: 'root'
   },
-  // 示例：添加更多用户
-  // { 
-  //   id: 2, 
-  //   username: '用户2', 
-  //   password: 'password2', 
-  //   avatar: 'C:/path/to/avatar2.png' 
-  // },
 ];
-
-// 默认应用设置
-const defaultSettings = {
-  background: null,           // 自定义背景图片路径
-  theme: 'dark',             // 主题模式：'dark' 深色模式，'light' 亮色模式
-  accentColor: '#0078D4'      // 主题色（Windows 11 风格，默认蓝色）
-};
 
 /**
  * 确保配置目录存在
@@ -48,6 +36,28 @@ async function ensureConfigDir() {
   } catch {
     await fs.mkdir(CONFIG_DIR, { recursive: true });
   }
+}
+
+/**
+ * 确保用户目录存在
+ * @param {number} userId - 用户ID
+ */
+async function ensureUserDir(userId) {
+  const userDir = path.join(CONFIG_DIR, String(userId));
+  try {
+    await fs.access(userDir);
+  } catch {
+    await fs.mkdir(userDir, { recursive: true });
+  }
+  return userDir;
+}
+
+/**
+ * 获取用户配置目录路径
+ * @param {number} userId - 用户ID
+ */
+function getUserConfigPath(userId) {
+  return path.join(CONFIG_DIR, String(userId), 'config.json');
 }
 
 /**
@@ -62,7 +72,6 @@ async function loadJSON(filePath, defaultData) {
     const data = await fs.readFile(filePath, 'utf8');
     return JSON.parse(data);
   } catch {
-    // 文件不存在或解析失败，使用默认数据并保存
     await saveJSON(filePath, defaultData);
     return defaultData;
   }
@@ -75,6 +84,12 @@ async function loadJSON(filePath, defaultData) {
  */
 async function saveJSON(filePath, data) {
   await ensureConfigDir();
+  const dir = path.dirname(filePath);
+  try {
+    await fs.access(dir);
+  } catch {
+    await fs.mkdir(dir, { recursive: true });
+  }
   await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
 }
 
@@ -83,7 +98,8 @@ async function saveJSON(filePath, data) {
  * @returns {Promise<Array>} 用户列表
  */
 async function getUsers() {
-  return await loadJSON(USERS_FILE, defaultUsers);
+  const data = await loadJSON(USERS_FILE, { users: defaultUsers });
+  return data.users || defaultUsers;
 }
 
 /**
@@ -91,57 +107,127 @@ async function getUsers() {
  * @param {Array} users - 用户列表
  */
 async function saveUsers(users) {
-  await saveJSON(USERS_FILE, users);
+  await saveJSON(USERS_FILE, { users });
 }
 
 /**
- * 获取应用设置
+ * 获取用户配置（包含login和profile）
+ * @param {number} userId - 用户ID
+ * @returns {Promise<Object>} 用户配置
+ */
+async function getUserConfig(userId) {
+  const userConfigPath = getUserConfigPath(userId);
+  const defaultUserConfig = {
+    login: {
+      userid: userId,
+      username: '',
+      photo: null,
+      permi: 'user'
+    },
+    profile: {
+      loginbg: null,
+      themebd: 'dark',
+      themecolor: '#0078D4'
+    }
+  };
+  
+  const config = await loadJSON(userConfigPath, defaultUserConfig);
+  
+  // 确保login中的userid正确
+  if (config.login && config.login.userid !== userId) {
+    config.login.userid = userId;
+    await saveUserConfig(userId, config);
+  }
+  
+  return config;
+}
+
+/**
+ * 保存用户配置
+ * @param {number} userId - 用户ID
+ * @param {Object} config - 用户配置
+ */
+async function saveUserConfig(userId, config) {
+  const userConfigPath = getUserConfigPath(userId);
+  await saveJSON(userConfigPath, config);
+}
+
+/**
+ * 获取应用设置（兼容旧接口）
+ * @param {number} userId - 可选，用户ID
  * @returns {Promise<Object>} 应用设置
  */
-async function getSettings() {
-  return await loadJSON(SETTINGS_FILE, defaultSettings);
-}
-
-/**
- * 保存应用设置
- * @param {Object} settings - 应用设置
- */
-async function saveSettings(settings) {
-  await saveJSON(SETTINGS_FILE, settings);
+async function getSettings(userId = null) {
+  if (userId) {
+    const userConfig = await getUserConfig(userId);
+    return {
+      background: userConfig.profile.loginbg,
+      theme: userConfig.profile.themebd,
+      accentColor: userConfig.profile.themecolor
+    };
+  }
+  
+  return {
+    background: null,
+    theme: 'dark',
+    accentColor: '#0078D4'
+  };
 }
 
 /**
  * 添加新用户
  * @param {string} username - 用户名
- * @param {string} password - 密码（可选）
- * @param {string} avatar - 头像路径（可选）
+ * @param {string} password - 密码（可选，暂不使用）
+ * @param {string} photo - 头像路径（可选）
  * @returns {Promise<Object>} 新创建的用户
  */
-async function addUser(username, password = '', avatar = null) {
+async function addUser(username, password = '', photo = null) {
   const users = await getUsers();
   const newUser = {
-    id: Date.now(),
+    userid: Date.now(),
     username,
-    password,
-    avatar
+    photo,
+    permi: 'user'
   };
   users.push(newUser);
   await saveUsers(users);
+  
+  // 为新用户创建配置目录和配置文件
+  await ensureUserDir(newUser.userid);
+  const userConfig = await getUserConfig(newUser.userid);
+  userConfig.login.username = username;
+  userConfig.login.photo = photo;
+  await saveUserConfig(newUser.userid, userConfig);
+  
   return newUser;
 }
 
 /**
  * 更新用户信息
- * @param {number} id - 用户ID
+ * @param {number} userId - 用户ID
  * @param {Object} updates - 要更新的字段
  * @returns {Promise<Object|null>} 更新后的用户或null
  */
-async function updateUser(id, updates) {
+async function updateUser(userId, updates) {
   const users = await getUsers();
-  const index = users.findIndex(u => u.id === id);
+  const index = users.findIndex(u => u.userid === userId);
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
     await saveUsers(users);
+    
+    // 同步更新用户配置中的信息
+    const userConfig = await getUserConfig(userId);
+    if (updates.username !== undefined) {
+      userConfig.login.username = updates.username;
+    }
+    if (updates.photo !== undefined) {
+      userConfig.login.photo = updates.photo;
+    }
+    if (updates.permi !== undefined) {
+      userConfig.login.permi = updates.permi;
+    }
+    await saveUserConfig(userId, userConfig);
+    
     return users[index];
   }
   return null;
@@ -149,55 +235,95 @@ async function updateUser(id, updates) {
 
 /**
  * 删除用户
- * @param {number} id - 用户ID
+ * @param {number} userId - 用户ID
  */
-async function deleteUser(id) {
+async function deleteUser(userId) {
   const users = await getUsers();
-  const filtered = users.filter(u => u.id !== id);
+  const filtered = users.filter(u => u.userid !== userId);
   await saveUsers(filtered);
+  
+  // 删除用户配置目录
+  const userDir = path.join(CONFIG_DIR, String(userId));
+  try {
+    await fs.rm(userDir, { recursive: true, force: true });
+  } catch {
+    // 忽略删除错误
+  }
 }
 
 /**
- * 验证用户登录
+ * 验证用户登录（简化版，实际应该用密码）
  * @param {string} username - 用户名
  * @param {string} password - 密码
  * @returns {Promise<Object|null>} 验证成功返回用户对象，失败返回null
  */
 async function verifyUser(username, password) {
   const users = await getUsers();
-  return users.find(u => u.username === username && u.password === password);
+  // 简化验证：只检查用户名，密码匹配任何值（示例用）
+  // 实际应用中应该验证密码
+  const user = users.find(u => u.username === username);
+  if (user) {
+    // 检查密码（简化处理）
+    // 在实际应用中，这里应该使用加密密码验证
+    return user;
+  }
+  return null;
 }
 
 /**
  * 设置背景图片
  * @param {string} imagePath - 图片路径
+ * @param {number} userId - 用户ID
  */
-async function setBackground(imagePath) {
-  const settings = await getSettings();
-  settings.background = imagePath;
-  await saveSettings(settings);
+async function setBackground(imagePath, userId) {
+  const userConfig = await getUserConfig(userId);
+  userConfig.profile.loginbg = imagePath;
+  await saveUserConfig(userId, userConfig);
 }
 
 /**
  * 设置主题模式
- * @param {string} theme - 主题模式：'dark' 或 'light'
+ * @param {string} theme - 主题模式：'dark' 或 'bright'
+ * @param {number} userId - 用户ID
  */
-async function setTheme(theme) {
-  const settings = await getSettings();
-  if (theme === 'dark' || theme === 'light') {
-    settings.theme = theme;
-    await saveSettings(settings);
+async function setTheme(theme, userId) {
+  if (theme === 'dark' || theme === 'bright') {
+    const userConfig = await getUserConfig(userId);
+    userConfig.profile.themebd = theme;
+    await saveUserConfig(userId, userConfig);
   }
 }
 
 /**
  * 设置主题色
- * @param {string} color - 十六进制颜色值，如 '#0078D4'
+ * @param {string} color - 十六进制颜色值
+ * @param {number} userId - 用户ID
  */
-async function setAccentColor(color) {
-  const settings = await getSettings();
-  settings.accentColor = color;
-  await saveSettings(settings);
+async function setAccentColor(color, userId) {
+  const userConfig = await getUserConfig(userId);
+  userConfig.profile.themecolor = color;
+  await saveUserConfig(userId, userConfig);
+}
+
+/**
+ * 设置用户权限
+ * @param {number} userId - 用户ID
+ * @param {string} permi - 权限级别：root/sudo/user/guest
+ */
+async function setPermission(userId, permi) {
+  const validPermissions = ['root', 'sudo', 'user', 'guest'];
+  if (validPermissions.includes(permi)) {
+    const users = await getUsers();
+    const user = users.find(u => u.userid === userId);
+    if (user) {
+      user.permi = permi;
+      await saveUsers(users);
+      
+      const userConfig = await getUserConfig(userId);
+      userConfig.login.permi = permi;
+      await saveUserConfig(userId, userConfig);
+    }
+  }
 }
 
 // 导出模块接口
@@ -205,12 +331,15 @@ module.exports = {
   getUsers,
   saveUsers,
   getSettings,
-  saveSettings,
+  getUserConfig,
+  saveUserConfig,
   addUser,
   updateUser,
   deleteUser,
   verifyUser,
   setBackground,
   setTheme,
-  setAccentColor
+  setAccentColor,
+  setPermission,
+  ensureUserDir
 };

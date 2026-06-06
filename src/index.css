@@ -268,7 +268,7 @@ body {
   border: none;
   background: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(10px);
-  color: white;
+  color: rgb(255, 255, 255);
   font-size: 20px;
   cursor: pointer;
   transition: all 0.2s;
@@ -300,4 +300,111 @@ body {
   font-size: 16px;
   font-weight: 300;
   margin-top: 5px;
+}
+
+/* 电源菜单 */
+.power-menu {
+  position: fixed;
+  left: 30px;
+  bottom: 80px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 15px;
+  min-width: 200px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  z-index: 1000;
+}
+
+.power-menu.hidden {
+  display: none;
+}
+
+.power-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+}
+
+.power-menu-item:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.power-menu-item:active {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(0.98);
+}
+
+.power-menu-icon {
+  width: 22px;
+  height: 22px;
+}
+
+/* 遮罩确认窗 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2000;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-box {
+  position: fixed;
+  left: 30px;
+  bottom: 80px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 20px;
+  min-width: 200px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.modal-message {
+  color: white;
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: center;
+}
+
+.modal-btn {
+  padding: 12px 24px;
+  border-radius: 12px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.modal-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.modal-btn:active {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(0.98);
+}
+
+.modal-btn.hidden {
+  display: none;
 }
