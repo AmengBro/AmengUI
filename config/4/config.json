@@ -2,8 +2,9 @@
   "login": {
     "userid": 4,
     "username": "root1",
+    "password": "123456",
     "photo": null,
-    "permi": "sudo"
+    "permi": "user"
   },
   "profile": {
     "loginbg": null,

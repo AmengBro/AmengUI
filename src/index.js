@@ -250,7 +250,7 @@ async function initConfig() {
     
     // 为所有现有用户创建配置目录
     for (const user of users) {
-      await config.ensureUserDir(user.id);
+      await config.ensureUserDir(user.userid);
     }
     
     // 迁移旧的 settings.json 到第一个用户的配置（如果存在旧数据且用户目录没有配置）
@@ -261,13 +261,13 @@ async function initConfig() {
       
       if (users.length > 0 && oldSettings.background) {
         // 检查用户配置是否已存在
-        const userConfig = await config.getUserConfig(users[0].id);
-        if (!userConfig.background && oldSettings.background) {
+        const userConfig = await config.getUserConfig(users[0].userid);
+        if (!userConfig.profile.loginbg && oldSettings.background) {
           // 迁移旧设置到用户配置
-          userConfig.background = oldSettings.background;
-          userConfig.theme = oldSettings.theme || 'dark';
-          userConfig.accentColor = oldSettings.accentColor || '#0078D4';
-          await config.saveUserConfig(users[0].id, userConfig);
+          userConfig.profile.loginbg = oldSettings.background;
+          userConfig.profile.themebd = oldSettings.theme || 'dark';
+          userConfig.profile.themecolor = oldSettings.accentColor || '#0078D4';
+          await config.saveUserConfig(users[0].userid, userConfig);
           console.log('Migrated old settings to user config');
         }
       }
@@ -305,12 +305,12 @@ ipcMain.handle('config:addUser', async (_, username, password, avatar) => {
   return await config.addUser(username, password, avatar);
 });
 
-ipcMain.handle('config:updateUser', async (_, id, updates) => {
-  return await config.updateUser(id, updates);
+ipcMain.handle('config:updateUser', async (_, userid, updates) => {
+  return await config.updateUser(userid, updates);
 });
 
-ipcMain.handle('config:deleteUser', async (_, id) => {
-  return await config.deleteUser(id);
+ipcMain.handle('config:deleteUser', async (_, userid) => {
+  return await config.deleteUser(userid);
 });
 
 ipcMain.handle('config:setBackground', async (_, imagePath, userId) => {
@@ -376,6 +376,24 @@ ipcMain.handle('fs:readDir', async (_, dirPath) => {
     return { success: true, files: result };
   } catch (error) {
     return { success: false, error: error.message };
+  }
+});
+
+// 窗口操作
+ipcMain.handle('window:openDashboard', async () => {
+  const dashboardWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    frame: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  dashboardWindow.loadFile(path.join(__dirname, 'dashboard.html'));
+  
+  // 关闭登录窗口
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close();
   }
 });
 

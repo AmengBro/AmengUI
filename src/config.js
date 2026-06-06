@@ -121,6 +121,7 @@ async function getUserConfig(userId) {
     login: {
       userid: userId,
       username: '',
+      password: '',
       photo: null,
       permi: 'user'
     },
@@ -177,7 +178,7 @@ async function getSettings(userId = null) {
 /**
  * 添加新用户
  * @param {string} username - 用户名
- * @param {string} password - 密码（可选，暂不使用）
+ * @param {string} password - 密码
  * @param {string} photo - 头像路径（可选）
  * @returns {Promise<Object>} 新创建的用户
  */
@@ -196,6 +197,7 @@ async function addUser(username, password = '', photo = null) {
   await ensureUserDir(newUser.userid);
   const userConfig = await getUserConfig(newUser.userid);
   userConfig.login.username = username;
+  userConfig.login.password = password;
   userConfig.login.photo = photo;
   await saveUserConfig(newUser.userid, userConfig);
   
@@ -219,6 +221,9 @@ async function updateUser(userId, updates) {
     const userConfig = await getUserConfig(userId);
     if (updates.username !== undefined) {
       userConfig.login.username = updates.username;
+    }
+    if (updates.password !== undefined) {
+      userConfig.login.password = updates.password;
     }
     if (updates.photo !== undefined) {
       userConfig.login.photo = updates.photo;
@@ -252,20 +257,20 @@ async function deleteUser(userId) {
 }
 
 /**
- * 验证用户登录（简化版，实际应该用密码）
+ * 验证用户登录
  * @param {string} username - 用户名
  * @param {string} password - 密码
  * @returns {Promise<Object|null>} 验证成功返回用户对象，失败返回null
  */
 async function verifyUser(username, password) {
   const users = await getUsers();
-  // 简化验证：只检查用户名，密码匹配任何值（示例用）
-  // 实际应用中应该验证密码
   const user = users.find(u => u.username === username);
   if (user) {
-    // 检查密码（简化处理）
-    // 在实际应用中，这里应该使用加密密码验证
-    return user;
+    // 从用户配置中获取密码进行验证
+    const userConfig = await getUserConfig(user.userid);
+    if (userConfig.login.password === password) {
+      return user;
+    }
   }
   return null;
 }

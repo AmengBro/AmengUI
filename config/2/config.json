@@ -2,6 +2,7 @@
   "login": {
     "userid": 2,
     "username": "Ad",
+    "password": "123456",
     "photo": null,
     "permi": "user"
   },

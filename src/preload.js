@@ -13,21 +13,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 获取所有用户 */
     getUsers: () => ipcRenderer.invoke('config:getUsers'),
     /** 获取应用设置 */
-    getSettings: () => ipcRenderer.invoke('config:getSettings'),
+    getSettings: (userId) => ipcRenderer.invoke('config:getSettings', userId),
     /** 验证用户登录 */
     verifyUser: (username, password) => ipcRenderer.invoke('config:verifyUser', username, password),
     /** 添加新用户 */
-    addUser: (username, password, avatar) => ipcRenderer.invoke('config:addUser', username, password, avatar),
+    addUser: (username, password, photo) => ipcRenderer.invoke('config:addUser', username, password, photo),
     /** 更新用户信息 */
-    updateUser: (id, updates) => ipcRenderer.invoke('config:updateUser', id, updates),
+    updateUser: (userid, updates) => ipcRenderer.invoke('config:updateUser', userid, updates),
     /** 删除用户 */
-    deleteUser: (id) => ipcRenderer.invoke('config:deleteUser', id),
+    deleteUser: (userid) => ipcRenderer.invoke('config:deleteUser', userid),
     /** 设置背景图片 */
-    setBackground: (imagePath) => ipcRenderer.invoke('config:setBackground', imagePath),
+    setBackground: (imagePath, userId) => ipcRenderer.invoke('config:setBackground', imagePath, userId),
     /** 设置主题模式 */
-    setTheme: (theme) => ipcRenderer.invoke('config:setTheme', theme),
+    setTheme: (theme, userId) => ipcRenderer.invoke('config:setTheme', theme, userId),
     /** 设置主题色 */
-    setAccentColor: (color) => ipcRenderer.invoke('config:setAccentColor', color)
+    setAccentColor: (color, userId) => ipcRenderer.invoke('config:setAccentColor', color, userId)
   },
   
   // 对话框相关 API
@@ -50,6 +50,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     writeFile: (filePath, content) => ipcRenderer.invoke('fs:writeFile', filePath, content),
     /** 读取目录内容 */
     readDir: (dirPath) => ipcRenderer.invoke('fs:readDir', dirPath)
+  },
+  
+  // 窗口操作 API
+  window: {
+    /** 打开欢迎页面 */
+    openDashboard: () => ipcRenderer.invoke('window:openDashboard')
   }
 });
 

@@ -4,6 +4,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none;
+}
+
 body {
   width: 100vw;
   height: 100vh;
@@ -124,6 +128,34 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.login-btn.loading {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.login-btn.loading .btn-text {
+  display: none;
+}
+
+.login-btn.loading .btn-loader {
+  display: block;
+}
+
+.btn-loader {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #333;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .login-btn:hover {

@@ -207,7 +207,7 @@ async function selectUser(user) {
   document.getElementById('users-panel').classList.add('hidden');
   
   // 加载该用户的个性化设置
-  settings = await window.electronAPI.config.getSettings(user.id);
+  settings = await window.electronAPI.config.getSettings(user.userid);
   
   // 如果设置了自定义背景，应用背景
   if (settings.background) {
@@ -231,9 +231,9 @@ async function selectUser(user) {
 function updateUserAvatar(user) {
   const avatarContainer = document.querySelector('.user-avatar');
   
-  if (user.avatar) {
+  if (user.photo) {
     // 如果用户有自定义头像，显示图片
-    avatarContainer.innerHTML = `<img src="${user.avatar}" alt="用户头像" />`;
+    avatarContainer.innerHTML = `<img src="${user.photo}" alt="用户头像" />`;
   } else {
     // 没有自定义头像，显示默认图标
     avatarContainer.innerHTML = `
@@ -259,7 +259,7 @@ function renderUserList() {
     const item = document.createElement('div');
     item.className = 'user-item';
     // 标记当前选中的用户
-    if (currentUser && currentUser.id === user.id) {
+    if (currentUser && currentUser.userid === user.userid) {
       item.classList.add('active');
     }
     item.innerHTML = `
@@ -269,7 +269,7 @@ function renderUserList() {
         </svg>
       </div>
       <div class="user-item-name">${user.username}</div>
-      ${currentUser && currentUser.id === user.id ? '<span style="color: #666; font-size: 12px; margin-left: auto;">✓</span>' : ''}
+      ${currentUser && currentUser.userid === user.userid ? '<span style="color: #666; font-size: 12px; margin-left: auto;">✓</span>' : ''}
     `;
     item.addEventListener('click', () => selectUser(user));
     container.appendChild(item);
@@ -294,20 +294,31 @@ function toggleUserPanel() {
  * 处理登录验证
  */
 async function handleLogin() {
+  const loginBtn = document.getElementById('login-btn');
   const password = document.getElementById('password-input').value;
   if (!currentUser) return;
+
+  // 显示加载状态
+  loginBtn.classList.add('loading');
+  document.getElementById('error-msg').textContent = '';
+
+  // 1.5秒伪加载
+  await new Promise(resolve => setTimeout(resolve, 1500));
 
   // 调用主进程验证用户
   const result = await window.electronAPI.config.verifyUser(currentUser.username, password);
   
   if (result) {
     // 登录成功
-    document.getElementById('error-msg').textContent = '';
-    alert('登录成功！');
+    // 打开欢迎页面
+    window.electronAPI.window.openDashboard();
   } else {
     // 登录失败，显示错误信息
     document.getElementById('error-msg').textContent = '密码错误，请重试。';
   }
+
+  // 移除加载状态
+  loginBtn.classList.remove('loading');
 }
 
 /**
@@ -325,7 +336,7 @@ async function changeBackground() {
   if (!currentUser) return;
   const imagePath = await window.electronAPI.dialog.selectImage();
   if (imagePath) {
-    await window.electronAPI.config.setBackground(imagePath, currentUser.id);
+    await window.electronAPI.config.setBackground(imagePath, currentUser.userid);
     applyBackground(imagePath);
   }
 }
