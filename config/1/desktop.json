@@ -5,7 +5,7 @@
       "x": 15,
       "y": 15,
       "name": "终端",
-      "start": "com.terminal.app",
+      "start": "com.terminal",
       "icon": "C:\\Windows\\System32\\cmd.exe"
     },
     {
@@ -13,7 +13,7 @@
       "x": 15,
       "y": 95,
       "name": "资源管理器",
-      "start": "com.explorer.app",
+      "start": "com.explorer",
       "icon": ""
     },
     {
@@ -21,7 +21,7 @@
       "x": 15,
       "y": 175,
       "name": "浏览器",
-      "start": "com.browser.app",
+      "start": "com.browser",
       "icon": null
     }
   ],

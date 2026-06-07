@@ -6,7 +6,7 @@
 const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('node:path');
 const fs = require('fs').promises;
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const config = require('./config');
 
@@ -147,15 +147,16 @@ const createWindow = () => {
 
 /**
  * 设置窗口置底的综合方法
+ * @param {BrowserWindow} window - 要置底的窗口（默认使用mainWindow）
  */
-async function setWindowToBottom() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+async function setWindowToBottom(window = mainWindow) {
+  if (!window || window.isDestroyed()) return;
   
   try {
     console.log(`=== setWindowToBottom ===`);
     
     // 方法1: 通过 PowerShell 调用 Windows API
-    const hwnd = mainWindow.getNativeWindowHandle();
+    const hwnd = window.getNativeWindowHandle();
     console.log(`hwnd buffer length: ${hwnd.length}`);
     console.log(`hwnd buffer:`, hwnd);
     
@@ -394,15 +395,81 @@ ipcMain.handle('window:openDashboard', async () => {
     frame: false,
     fullscreen: false,
     alwaysOnTop: false,
+    skipTaskbar: true,
+    resizable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+  
+  // 加载 dashboard 页面
   dashboardWindow.loadFile(path.join(__dirname, 'dashboard.html'));
+  
+  // 打开开发者工具（调试用）
+  dashboardWindow.webContents.openDevTools();
+  
+  // 设置 dashboard 窗口置底
+  dashboardWindow.webContents.on('did-finish-load', () => {
+    console.log('Dashboard loaded, setting to bottom');
+    setWindowToBottom(dashboardWindow);
+    
+    // 定期检查并保持置底状态
+    setInterval(() => {
+      if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+        setWindowToBottom(dashboardWindow);
+      }
+    }, 2000);
+  });
   
   // 关闭登录窗口
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();
+  }
+});
+
+// ==================== 应用启动功能 ====================
+
+/**
+ * 启动应用程序
+ * @param {string} appName - .app 文件名（不含扩展名）
+ */
+ipcMain.handle('app:launch', async (_, appName) => {
+  try {
+    // 构建 .app 文件路径（rootdir 与 AmengUI 同级）
+    const appPath = path.join(__dirname, '..', '..', 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    console.log('Attempting to launch app:', appPath);
+    
+    // 读取 .app 文件内容
+    const appDataRaw = await fs.readFile(appPath, 'utf-8');
+    const appData = JSON.parse(appDataRaw);
+    console.log('App config loaded:', appData);
+    
+    // 检查 exePath 是否存在
+    if (!appData.exePath) {
+      throw new Error('No exePath specified in app config');
+    }
+    
+    // 启动应用
+    console.log('Launching exe:', appData.exePath);
+    
+    // 使用 spawn 启动应用（不阻塞）
+    const child = spawn(appData.exePath, [], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    
+    child.unref();
+    console.log('App launched successfully');
+    
+    return { success: true, appName: appData.name };
+    
+  } catch (error) {
+    console.error('Failed to launch app:', error.message);
+    console.error('Error stack:', error.stack);
+    return { 
+      success: false, 
+      error: error.message 
+    };
   }
 });
 

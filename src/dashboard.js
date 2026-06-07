@@ -106,6 +106,18 @@ async function loadDesktopApps() {
         appElement.classList.remove('hovered');
       });
       
+      // 添加点击事件来启动应用
+      appElement.addEventListener('click', async () => {
+        console.log('Launching app:', app.start);
+        const result = await window.electronAPI.app.launch(app.start);
+        if (result.success) {
+          console.log('App launched:', result.appName);
+        } else {
+          console.error('Failed to launch app:', result.error);
+          alert(`启动失败: ${result.error}`);
+        }
+      });
+      
       appElement.appendChild(iconElement);
       appElement.appendChild(nameElement);
       container.appendChild(appElement);

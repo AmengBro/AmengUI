@@ -72,6 +72,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   window: {
     /** 打开欢迎页面 */
     openDashboard: () => ipcRenderer.invoke('window:openDashboard')
+  },
+  
+  // 应用启动 API
+  app: {
+    /** 启动应用程序 */
+    launch: (appName) => ipcRenderer.invoke('app:launch', appName)
   }
 });
 
