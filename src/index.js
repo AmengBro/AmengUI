@@ -103,7 +103,6 @@ const createWindow = () => {
     minimizable: false,     // 禁止最小化
     skipTaskbar: true,      // 不在任务栏显示
     resizable: false,       // 禁止调整大小
-    alwaysOnBottom: true,   // 初始设置置底
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -119,9 +118,6 @@ const createWindow = () => {
   // 打开开发者工具（调试用）
   mainWindow.webContents.openDevTools();
 
-  // 在窗口创建后立即设置置底
-  mainWindow.setAlwaysOnBottom(true);
-  
   // 监听窗口显示事件
   mainWindow.on('show', () => {
     console.log('Window shown');
@@ -137,10 +133,7 @@ const createWindow = () => {
   // 定期检查并保持置底状态
   setInterval(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      if (!mainWindow.isAlwaysOnBottom()) {
-        console.log('Window is not on bottom, fixing...');
-        setWindowToBottom();
-      }
+      setWindowToBottom();
     }
   }, 2000);
 
@@ -161,24 +154,16 @@ async function setWindowToBottom() {
   try {
     console.log(`=== setWindowToBottom ===`);
     
-    // 方法1: 使用 Electron API
-    console.log('Calling setAlwaysOnBottom(true, "normal")');
-    mainWindow.setAlwaysOnBottom(true, 'normal');
-    
-    // 检查 Electron API 是否生效
-    const isBottom = mainWindow.isAlwaysOnBottom();
-    console.log(`isAlwaysOnBottom after call: ${isBottom}`);
-    
-    // 方法2: 通过 PowerShell 调用 Windows API
+    // 方法1: 通过 PowerShell 调用 Windows API
     const hwnd = mainWindow.getNativeWindowHandle();
     console.log(`hwnd buffer length: ${hwnd.length}`);
     console.log(`hwnd buffer:`, hwnd);
     
     // 正确获取窗口句柄（兼容 32 位和 64 位系统）
     let hwndNumber;
-    if (hwnd.length >= 8) {
-      // 64 位系统
-      hwndNumber = hwnd.readUInt64LE(0);
+    if (hwnd.length === 8) {
+      // 64 位系统：从 Buffer 读取 64 位整数
+      hwndNumber = hwnd.readUInt32LE(0); // 低 32 位就是窗口句柄
       console.log(`Window handle (64-bit): ${hwndNumber} (0x${hwndNumber.toString(16)})`);
     } else {
       // 32 位系统
@@ -191,11 +176,6 @@ async function setWindowToBottom() {
     
     // 额外尝试 nircmd 方法
     await forceWindowToBottomWithNircmd(hwndNumber);
-    
-    // 再次检查状态
-    setTimeout(() => {
-      console.log(`Final isAlwaysOnBottom: ${mainWindow.isAlwaysOnBottom()}`);
-    }, 1000);
     
   } catch (error) {
     console.error('Error setting window to bottom:', error.message);
@@ -214,16 +194,8 @@ function forceWindowToBottomDelayed() {
     const hwndNumber = hwnd.readUInt32LE(0); // 正确获取 32 位窗口句柄
     console.log(`Window handle: 0x${hwndNumber.toString(16)}`);
     
-    // 先尝试 Electron API
-    mainWindow.setAlwaysOnBottom(true, 'normal');
-    
-    // 再使用 Windows API 强制置底
+    // 使用 Windows API 强制置底
     forceWindowToBottom(hwndNumber);
-    
-    // 再次确认置底状态
-    setTimeout(() => {
-      console.log('Always on bottom status:', mainWindow.isAlwaysOnBottom());
-    }, 500);
   }, 500);
 }
 
@@ -413,11 +385,15 @@ ipcMain.handle('fs:readDir', async (_, dirPath) => {
 
 // 窗口操作
 ipcMain.handle('window:openDashboard', async () => {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   const dashboardWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
-    frame: true,
-    maximized: true,
+    width: width,
+    height: height,
+    x: 0,
+    y: 0,
+    frame: false,
+    fullscreen: false,
+    alwaysOnTop: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },

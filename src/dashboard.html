@@ -12,9 +12,28 @@
     <p id="welcome-user"></p>
     <div class="theme-toggle">
       <button id="toggle-theme-btn">切换主题</button>
+      <button id="toggle-taskbar-btn">切换任务栏模式</button>
+      <button id="test-btn">测试按钮</button>
     </div>
     <p class="hint">按 ESC 键关闭此页面</p>
   </div>
+  
+  <!-- 任务栏 -->
+  <div id="taskbar" class="taskbar floating">
+    <!-- 开始按钮 -->
+    <div class="start-btn" id="start-btn">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="2" y="2" width="9" height="9" rx="1"/>
+        <rect x="13" y="2" width="9" height="9" rx="1"/>
+        <rect x="2" y="13" width="9" height="9" rx="1"/>
+        <rect x="13" y="13" width="9" height="9" rx="1"/>
+      </svg>
+    </div>
+    
+    <!-- 时间显示 -->
+    <div class="taskbar-time" id="taskbar-time"></div>
+  </div>
+  
   <script src="dashboard.js"></script>
 </body>
 </html>

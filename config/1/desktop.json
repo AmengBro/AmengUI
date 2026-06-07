@@ -1,4 +1,29 @@
 {
-  "desktopapp": [],
+  "desktopapp": [
+    {
+      "id": 1,
+      "x": 15,
+      "y": 15,
+      "name": "终端",
+      "start": "com.terminal.app",
+      "icon": "C:\\Windows\\System32\\cmd.exe"
+    },
+    {
+      "id": 2,
+      "x": 15,
+      "y": 95,
+      "name": "资源管理器",
+      "start": "com.explorer.app",
+      "icon": ""
+    },
+    {
+      "id": 3,
+      "x": 15,
+      "y": 175,
+      "name": "浏览器",
+      "start": "com.browser.app",
+      "icon": null
+    }
+  ],
   "desktopbg": null
 }
