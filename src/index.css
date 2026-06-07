@@ -8,6 +8,7 @@
   display: none;
 }
 
+/* 暗色模式（默认） */
 body {
   width: 100vw;
   height: 100vh;
@@ -17,6 +18,38 @@ body {
   background-size: cover;
   background-position: center;
   position: relative;
+  color: #fff;
+}
+
+/* 亮色模式 */
+body.theme-bright {
+  background: linear-gradient(135deg, #f0f0f0 0%, #e8e8e8 100%);
+  color: #333;
+}
+
+/* 亮色模式下的时间显示 */
+body.theme-bright .datetime {
+  color: #333;
+}
+
+/* 亮色模式下的控制按钮 */
+body.theme-bright .control-btn {
+  color: #333;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .control-btn:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* 亮色模式下的 SVG 图标 */
+body.theme-bright .control-btn svg {
+  fill: #333;
+}
+
+/* 亮色模式下的电源按钮文字 */
+body.theme-bright #power-btn {
+  color: #333;
 }
 
 #login-container {
@@ -39,6 +72,143 @@ body {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.2);
   min-width: 350px;
+}
+
+/* 亮色模式下的登录框 */
+body.theme-bright .login-box {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .username {
+  color: #333;
+}
+
+/* 亮色模式下的用户头像 */
+body.theme-bright .user-avatar {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .user-avatar svg {
+  fill: #333;
+}
+
+/* 亮色模式下的密码输入框 */
+body.theme-bright #password-input {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  color: #333;
+}
+
+body.theme-bright #password-input::placeholder {
+  color: #666;
+}
+
+/* 亮色模式下的密码显示切换按钮 */
+body.theme-bright .toggle-btn {
+  color: #333;
+}
+
+body.theme-bright .toggle-btn svg {
+  fill: #333;
+}
+
+/* 亮色模式下的登录按钮 */
+body.theme-bright .login-btn {
+  background: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+body.theme-bright .login-btn:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+body.theme-bright .btn-loader {
+  border-color: #333;
+  border-top-color: transparent;
+}
+
+/* 亮色模式下的用户列表面板 */
+body.theme-bright .users-panel {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .users-header {
+  color: #333;
+}
+
+body.theme-bright .user-item {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body.theme-bright .user-item:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .user-item-avatar {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .user-item-avatar svg {
+  fill: #333;
+}
+
+body.theme-bright .user-item-name {
+  color: #333;
+}
+
+body.theme-bright .users-panel::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body.theme-bright .users-panel::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+body.theme-bright .users-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* 亮色模式下的电源菜单 */
+body.theme-bright .power-menu {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .power-menu-item {
+  color: #333;
+}
+
+body.theme-bright .power-menu-item:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .power-menu-item:active {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+body.theme-bright .power-menu-icon {
+  fill: #333;
+}
+
+/* 亮色模式下的确认窗 */
+body.theme-bright .modal-box {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .modal-message {
+  color: #333;
+}
+
+body.theme-bright .modal-btn {
+  background: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+body.theme-bright .modal-btn:hover {
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .user-avatar {

@@ -28,10 +28,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadData() {
   // 获取用户列表
   users = await window.electronAPI.config.getUsers();
-
-  // 如果有用户，默认选中第一个
-  if (users.length > 0) {
-    await selectUser(users[0]);
+  
+  // 尝试获取上次登录的用户
+  const lastLoginUserId = await window.electronAPI.config.getLastLoginUserId();
+  let userToSelect = null;
+  
+  if (lastLoginUserId) {
+    // 找到上次登录的用户
+    userToSelect = users.find(u => u.userid === lastLoginUserId);
+  }
+  
+  // 如果没找到上次登录的用户，默认选中第一个
+  if (!userToSelect && users.length > 0) {
+    userToSelect = users[0];
+  }
+  
+  if (userToSelect) {
+    await selectUser(userToSelect);
   }
 
   // 渲染用户列表
@@ -209,6 +222,9 @@ async function selectUser(user) {
   // 加载该用户的个性化设置
   settings = await window.electronAPI.config.getSettings(user.userid);
   
+  // 应用主题
+  applyTheme(settings.theme || 'dark');
+  
   // 如果设置了自定义背景，应用背景
   if (settings.background) {
     applyBackground(settings.background);
@@ -222,6 +238,18 @@ async function selectUser(user) {
   
   // 更新切换用户按钮可见性
   updateSwitchUserButtonVisibility();
+}
+
+/**
+ * 应用主题
+ * @param {string} theme - 主题模式：'dark' 或 'bright'
+ */
+function applyTheme(theme) {
+  if (theme === 'bright') {
+    document.body.classList.add('theme-bright');
+  } else {
+    document.body.classList.remove('theme-bright');
+  }
 }
 
 /**
@@ -309,7 +337,8 @@ async function handleLogin() {
   const result = await window.electronAPI.config.verifyUser(currentUser.username, password);
   
   if (result) {
-    // 登录成功
+    // 登录成功，保存当前用户ID
+    await window.electronAPI.config.setLastLoginUserId(currentUser.userid);
     // 打开欢迎页面
     window.electronAPI.window.openDashboard();
   } else {

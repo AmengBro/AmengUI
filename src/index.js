@@ -325,6 +325,38 @@ ipcMain.handle('config:setAccentColor', async (_, color, userId) => {
   return await config.setAccentColor(color, userId);
 });
 
+ipcMain.handle('config:setLastLoginUserId', async (_, userId) => {
+  return await config.setLastLoginUserId(userId);
+});
+
+ipcMain.handle('config:getLastLoginUserId', async () => {
+  return await config.getLastLoginUserId();
+});
+
+ipcMain.handle('config:getUserDesktop', async (_, userId) => {
+  return await config.getUserDesktop(userId);
+});
+
+ipcMain.handle('config:saveUserDesktop', async (_, userId, desktopConfig) => {
+  return await config.saveUserDesktop(userId, desktopConfig);
+});
+
+ipcMain.handle('config:addDesktopApp', async (_, userId, app) => {
+  return await config.addDesktopApp(userId, app);
+});
+
+ipcMain.handle('config:updateDesktopApp', async (_, userId, appId, updates) => {
+  return await config.updateDesktopApp(userId, appId, updates);
+});
+
+ipcMain.handle('config:removeDesktopApp', async (_, userId, appId) => {
+  return await config.removeDesktopApp(userId, appId);
+});
+
+ipcMain.handle('config:setDesktopBackground', async (_, userId, bgPath) => {
+  return await config.setDesktopBackground(userId, bgPath);
+});
+
 // 对话框相关
 ipcMain.handle('dialog:selectImage', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -385,6 +417,7 @@ ipcMain.handle('window:openDashboard', async () => {
     width: 800,
     height: 600,
     frame: true,
+    maximized: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },

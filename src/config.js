@@ -16,6 +16,8 @@ const path = require('path');
 const CONFIG_DIR = path.join(__dirname, '../config');
 // 用户配置文件路径
 const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
+// 全局系统配置路径
+const SYSTEM_FILE = path.join(CONFIG_DIR, 'system.json');
 
 // 默认用户列表
 const defaultUsers = [
@@ -331,6 +333,129 @@ async function setPermission(userId, permi) {
   }
 }
 
+/**
+ * 获取系统配置
+ * @returns {Promise<Object>} 系统配置
+ */
+async function getSystemConfig() {
+  try {
+    const data = await fs.readFile(SYSTEM_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch {
+    return { lastLoginUserId: null };
+  }
+}
+
+/**
+ * 保存系统配置
+ * @param {Object} config - 系统配置
+ */
+async function saveSystemConfig(config) {
+  await ensureConfigDir();
+  await fs.writeFile(SYSTEM_FILE, JSON.stringify(config, null, 2), 'utf8');
+}
+
+/**
+ * 保存最后登录的用户ID
+ * @param {number} userId - 用户ID
+ */
+async function setLastLoginUserId(userId) {
+  const systemConfig = await getSystemConfig();
+  systemConfig.lastLoginUserId = userId;
+  await saveSystemConfig(systemConfig);
+}
+
+/**
+ * 获取最后登录的用户ID
+ * @returns {Promise<number|null>} 用户ID
+ */
+async function getLastLoginUserId() {
+  const systemConfig = await getSystemConfig();
+  return systemConfig.lastLoginUserId || null;
+}
+
+/**
+ * 获取用户桌面配置
+ * @param {number} userId - 用户ID
+ * @returns {Promise<Object>} 桌面配置
+ */
+async function getUserDesktop(userId) {
+  const desktopPath = path.join(CONFIG_DIR, String(userId), 'desktop.json');
+  const defaultDesktop = {
+    desktopapp: [],
+    desktopbg: null
+  };
+  return await loadJSON(desktopPath, defaultDesktop);
+}
+
+/**
+ * 保存用户桌面配置
+ * @param {number} userId - 用户ID
+ * @param {Object} desktopConfig - 桌面配置
+ */
+async function saveUserDesktop(userId, desktopConfig) {
+  const desktopPath = path.join(CONFIG_DIR, String(userId), 'desktop.json');
+  await saveJSON(desktopPath, desktopConfig);
+}
+
+/**
+ * 添加桌面应用
+ * @param {number} userId - 用户ID
+ * @param {Object} app - 应用对象 {name, start, icon, x, y}
+ * @returns {Promise<Object>} 添加的应用
+ */
+async function addDesktopApp(userId, app) {
+  const desktop = await getUserDesktop(userId);
+  const newApp = {
+    id: Date.now(),
+    x: app.x || 0,
+    y: app.y || 0,
+    name: app.name || 'New App',
+    start: app.start || '',
+    icon: app.icon || null
+  };
+  desktop.desktopapp.push(newApp);
+  await saveUserDesktop(userId, desktop);
+  return newApp;
+}
+
+/**
+ * 更新桌面应用
+ * @param {number} userId - 用户ID
+ * @param {number} appId - 应用ID
+ * @param {Object} updates - 更新字段 {x, y, name, start, icon}
+ */
+async function updateDesktopApp(userId, appId, updates) {
+  const desktop = await getUserDesktop(userId);
+  const appIndex = desktop.desktopapp.findIndex(a => a.id === appId);
+  if (appIndex !== -1) {
+    desktop.desktopapp[appIndex] = { ...desktop.desktopapp[appIndex], ...updates };
+    await saveUserDesktop(userId, desktop);
+  }
+}
+
+/**
+ * 删除桌面应用
+ * @param {number} userId - 用户ID
+ * @param {number} appId - 应用ID
+ */
+async function removeDesktopApp(userId, appId) {
+  const desktop = await getUserDesktop(userId);
+  desktop.desktopapp = desktop.desktopapp.filter(a => a.id !== appId);
+  await saveUserDesktop(userId, desktop);
+}
+
+/**
+ * 设置桌面背景
+ * @param {number} userId - 用户ID
+ * @param {string} bgPath - 背景图片路径
+ */
+async function setDesktopBackground(userId, bgPath) {
+  const desktop = await getUserDesktop(userId);
+  desktop.desktopbg = bgPath;
+  await saveUserDesktop(userId, desktop);
+}
+
 // 导出模块接口
 module.exports = {
   getUsers,
@@ -346,5 +471,13 @@ module.exports = {
   setTheme,
   setAccentColor,
   setPermission,
-  ensureUserDir
+  ensureUserDir,
+  setLastLoginUserId,
+  getLastLoginUserId,
+  getUserDesktop,
+  saveUserDesktop,
+  addDesktopApp,
+  updateDesktopApp,
+  removeDesktopApp,
+  setDesktopBackground
 };

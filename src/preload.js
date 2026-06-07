@@ -27,7 +27,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 设置主题模式 */
     setTheme: (theme, userId) => ipcRenderer.invoke('config:setTheme', theme, userId),
     /** 设置主题色 */
-    setAccentColor: (color, userId) => ipcRenderer.invoke('config:setAccentColor', color, userId)
+    setAccentColor: (color, userId) => ipcRenderer.invoke('config:setAccentColor', color, userId),
+    /** 保存最后登录的用户ID */
+    setLastLoginUserId: (userId) => ipcRenderer.invoke('config:setLastLoginUserId', userId),
+    /** 获取最后登录的用户ID */
+    getLastLoginUserId: () => ipcRenderer.invoke('config:getLastLoginUserId'),
+    /** 获取用户桌面配置 */
+    getUserDesktop: (userId) => ipcRenderer.invoke('config:getUserDesktop', userId),
+    /** 保存用户桌面配置 */
+    saveUserDesktop: (userId, desktopConfig) => ipcRenderer.invoke('config:saveUserDesktop', userId, desktopConfig),
+    /** 添加桌面应用 */
+    addDesktopApp: (userId, app) => ipcRenderer.invoke('config:addDesktopApp', userId, app),
+    /** 更新桌面应用 */
+    updateDesktopApp: (userId, appId, updates) => ipcRenderer.invoke('config:updateDesktopApp', userId, appId, updates),
+    /** 删除桌面应用 */
+    removeDesktopApp: (userId, appId) => ipcRenderer.invoke('config:removeDesktopApp', userId, appId),
+    /** 设置桌面背景 */
+    setDesktopBackground: (userId, bgPath) => ipcRenderer.invoke('config:setDesktopBackground', userId, bgPath)
   },
   
   // 对话框相关 API
