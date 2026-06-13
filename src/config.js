@@ -456,6 +456,25 @@ async function setDesktopBackground(userId, bgPath) {
   await saveUserDesktop(userId, desktop);
 }
 
+/**
+ * 更新桌面应用位置
+ * @param {number} userId - 用户ID
+ * @param {number} appId - 应用ID
+ * @param {number} x - 新的X坐标
+ * @param {number} y - 新的Y坐标
+ */
+async function updateDesktopAppPosition(userId, appId, x, y) {
+  const desktop = await getUserDesktop(userId);
+  const app = desktop.desktopapp.find(a => a.id === appId);
+  if (app) {
+    app.x = x;
+    app.y = y;
+    await saveUserDesktop(userId, desktop);
+    return true;
+  }
+  return false;
+}
+
 // 导出模块接口
 module.exports = {
   getUsers,
@@ -479,5 +498,6 @@ module.exports = {
   addDesktopApp,
   updateDesktopApp,
   removeDesktopApp,
-  setDesktopBackground
+  setDesktopBackground,
+  updateDesktopAppPosition
 };

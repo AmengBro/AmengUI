@@ -94,6 +94,9 @@ const createWindow = () => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
+  // 应用图标路径
+  const iconPath = path.join(__dirname, '../favicon.ico');
+
   mainWindow = new BrowserWindow({
     width: width,
     height: height,
@@ -103,6 +106,7 @@ const createWindow = () => {
     minimizable: false,     // 禁止最小化
     skipTaskbar: true,      // 不在任务栏显示
     resizable: false,       // 禁止调整大小
+    icon: iconPath,         // 应用图标
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -330,6 +334,10 @@ ipcMain.handle('config:setDesktopBackground', async (_, userId, bgPath) => {
   return await config.setDesktopBackground(userId, bgPath);
 });
 
+ipcMain.handle('config:updateDesktopAppPosition', async (_, userId, appId, x, y) => {
+  return await config.updateDesktopAppPosition(userId, appId, x, y);
+});
+
 // 对话框相关
 ipcMain.handle('dialog:selectImage', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -387,6 +395,10 @@ ipcMain.handle('fs:readDir', async (_, dirPath) => {
 // 窗口操作
 ipcMain.handle('window:openDashboard', async () => {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  
+  // 应用图标路径
+  const iconPath = path.join(__dirname, '../favicon.ico');
+  
   const dashboardWindow = new BrowserWindow({
     width: width,
     height: height,
@@ -397,6 +409,7 @@ ipcMain.handle('window:openDashboard', async () => {
     alwaysOnTop: false,
     skipTaskbar: true,
     resizable: false,
+    icon: iconPath,         // 应用图标
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -435,8 +448,8 @@ ipcMain.handle('window:openDashboard', async () => {
  */
 ipcMain.handle('app:launch', async (_, appName) => {
   try {
-    // 构建 .app 文件路径（rootdir 与 AmengUI 同级）
-    const appPath = path.join(__dirname, '..', '..', 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    // 构建 .app 文件路径（rootdir 在 AmengUI 目录内）
+    const appPath = path.join(__dirname, '..', 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
     console.log('Attempting to launch app:', appPath);
     
     // 读取 .app 文件内容
@@ -466,6 +479,34 @@ ipcMain.handle('app:launch', async (_, appName) => {
   } catch (error) {
     console.error('Failed to launch app:', error.message);
     console.error('Error stack:', error.stack);
+    return { 
+      success: false, 
+      error: error.message 
+    };
+  }
+});
+
+// 获取应用信息
+ipcMain.handle('app:getInfo', async (_, appName) => {
+  try {
+    // 构建 .app 文件路径（rootdir 在 AmengUI 目录内）
+    const appPath = path.join(__dirname, '..', 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    console.log('Getting app info:', appPath);
+    
+    // 读取 .app 文件内容
+    const appDataRaw = await fs.readFile(appPath, 'utf-8');
+    const appData = JSON.parse(appDataRaw);
+    
+    return {
+      success: true,
+      name: appData.name,
+      description: appData.description,
+      exePath: appData.exePath,
+      icon: appData.icon
+    };
+    
+  } catch (error) {
+    console.error('Failed to get app info:', error.message);
     return { 
       success: false, 
       error: error.message 

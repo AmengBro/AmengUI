@@ -2,24 +2,24 @@
   "desktopapp": [
     {
       "id": 1,
-      "x": 15,
-      "y": 15,
+      "x": 491,
+      "y": 153,
       "name": "终端",
       "start": "com.terminal",
       "icon": "C:\\Windows\\System32\\cmd.exe"
     },
     {
       "id": 2,
-      "x": 15,
-      "y": 95,
+      "x": 298,
+      "y": 159,
       "name": "资源管理器",
       "start": "com.explorer",
       "icon": ""
     },
     {
       "id": 3,
-      "x": 15,
-      "y": 175,
+      "x": 351,
+      "y": 290,
       "name": "浏览器",
       "start": "com.browser",
       "icon": null

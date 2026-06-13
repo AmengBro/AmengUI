@@ -43,7 +43,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 删除桌面应用 */
     removeDesktopApp: (userId, appId) => ipcRenderer.invoke('config:removeDesktopApp', userId, appId),
     /** 设置桌面背景 */
-    setDesktopBackground: (userId, bgPath) => ipcRenderer.invoke('config:setDesktopBackground', userId, bgPath)
+    setDesktopBackground: (userId, bgPath) => ipcRenderer.invoke('config:setDesktopBackground', userId, bgPath),
+    /** 更新桌面应用位置 */
+    updateDesktopAppPosition: (userId, appId, x, y) => ipcRenderer.invoke('config:updateDesktopAppPosition', userId, appId, x, y)
   },
   
   // 对话框相关 API
@@ -77,7 +79,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 应用启动 API
   app: {
     /** 启动应用程序 */
-    launch: (appName) => ipcRenderer.invoke('app:launch', appName)
+    launch: (appName) => ipcRenderer.invoke('app:launch', appName),
+    /** 获取应用信息 */
+    getInfo: (appName) => ipcRenderer.invoke('app:getInfo', appName)
   }
 });
 
