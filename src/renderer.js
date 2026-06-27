@@ -225,6 +225,11 @@ async function selectUser(user) {
   // 应用主题
   applyTheme(settings.theme || 'dark');
   
+  // 应用主题色
+  if (settings.accentColor) {
+    applyAccentColor(settings.accentColor);
+  }
+  
   // 如果设置了自定义背景，应用背景
   if (settings.background) {
     applyBackground(settings.background);
@@ -238,6 +243,13 @@ async function selectUser(user) {
   
   // 更新切换用户按钮可见性
   updateSwitchUserButtonVisibility();
+}
+
+/**
+ * 应用主题色
+ */
+function applyAccentColor(color) {
+  document.documentElement.style.setProperty('--accent-color', color);
 }
 
 /**

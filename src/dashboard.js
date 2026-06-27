@@ -83,6 +83,155 @@ function applyAccentColor(color) {
   });
 }
 
+/**
+ * 显示右键菜单
+ */
+function showContextMenu(x, y, app) {
+  // 创建右键菜单容器
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'desktop-context-menu';
+  menu.style.cssText = `
+    position: fixed;
+    left: ${x}px;
+    top: ${y}px;
+    background: rgba(32, 32, 32, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 160px;
+    z-index: 1000;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  `;
+  
+  // 暗色模式样式
+  menu.classList.add('theme-dark');
+  
+  // 添加菜单选项
+  const menuItems = [
+    { label: '打开', icon: '📂', action: () => launchApp(app) },
+    { label: '属性', icon: '⚙️', action: () => showAppProperties(app) }
+  ];
+  
+  menuItems.forEach((item, index) => {
+    const menuItem = document.createElement('div');
+    menuItem.className = 'context-menu-item';
+    menuItem.style.cssText = `
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      cursor: pointer;
+      color: #fff;
+      font-size: 13px;
+      border-radius: 4px;
+      transition: background 0.15s ease;
+    `;
+    
+    // 添加分割线
+    if (index > 0) {
+      const separator = document.createElement('div');
+      separator.style.cssText = `
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 4px 0;
+      `;
+      menu.appendChild(separator);
+    }
+    
+    // 图标
+    const iconSpan = document.createElement('span');
+    iconSpan.textContent = item.icon;
+    iconSpan.style.marginRight = '8px';
+    
+    // 文字
+    const textSpan = document.createElement('span');
+    textSpan.textContent = item.label;
+    
+    menuItem.appendChild(iconSpan);
+    menuItem.appendChild(textSpan);
+    
+    // 悬停效果
+    menuItem.addEventListener('mouseenter', () => {
+      menuItem.style.background = 'rgba(255, 255, 255, 0.1)';
+    });
+    
+    menuItem.addEventListener('mouseleave', () => {
+      menuItem.style.background = 'transparent';
+    });
+    
+    // 点击事件
+    menuItem.addEventListener('click', () => {
+      item.action();
+      closeContextMenu();
+    });
+    
+    menu.appendChild(menuItem);
+  });
+  
+  // 添加到文档
+  document.body.appendChild(menu);
+  
+  // 点击其他地方关闭菜单
+  document.addEventListener('click', closeContextMenu);
+  document.addEventListener('contextmenu', closeContextMenu);
+}
+
+/**
+ * 关闭右键菜单
+ */
+function closeContextMenu() {
+  const menu = document.getElementById('desktop-context-menu');
+  if (menu) {
+    menu.remove();
+  }
+  document.removeEventListener('click', closeContextMenu);
+  document.removeEventListener('contextmenu', closeContextMenu);
+}
+
+/**
+ * 启动应用
+ */
+async function launchApp(app) {
+  console.log('Launching app:', app.start);
+  const result = await window.electronAPI.app.launch(app.start);
+  if (result.success) {
+    console.log('App launched:', result.appName);
+  } else {
+    console.error('Failed to launch app:', result.error);
+    alert(`启动失败: ${result.error}`);
+  }
+}
+
+/**
+ * 显示应用属性
+ */
+async function showAppProperties(app) {
+  // 获取应用详细信息
+  const appInfo = await getAppInfo(app.start);
+  
+  let properties = `名称: ${app.name}\n`;
+  properties += `ID: ${app.id}\n`;
+  properties += `启动文件: ${app.start}\n`;
+  
+  if (appInfo) {
+    if (appInfo.description) {
+      properties += `描述: ${appInfo.description}\n`;
+    }
+    if (appInfo.exePath) {
+      properties += `执行路径: ${appInfo.exePath}\n`;
+    }
+    if (appInfo.icon) {
+      properties += `图标路径: ${appInfo.icon}\n`;
+    }
+  }
+  
+  properties += `位置: (${app.x || 15}, ${app.y || 15})`;
+  
+  alert(properties);
+}
+
 // 获取当前登录用户ID
 async function getCurrentUserId() {
   try {
@@ -217,6 +366,23 @@ async function loadDesktopApps() {
           console.error('Failed to launch app:', result.error);
           alert(`启动失败: ${result.error}`);
         }
+      });
+      
+      // 右键菜单事件
+      appElement.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 先关闭已有的右键菜单
+        closeContextMenu();
+        
+        // 选中当前应用
+        const selectedApps = document.querySelectorAll('.desktop-app.selected');
+        selectedApps.forEach(el => el.classList.remove('selected'));
+        appElement.classList.add('selected');
+        
+        // 创建右键菜单
+        showContextMenu(e.clientX, e.clientY, app);
       });
       
       // 拖动相关变量
