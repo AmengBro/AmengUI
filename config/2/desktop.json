@@ -2,8 +2,8 @@
   "desktopapp": [
     {
       "id": 1,
-      "x": 491,
-      "y": 153,
+      "x": 489,
+      "y": 150,
       "name": "终端",
       "start": "com.terminal",
       "icon": "C:\\Windows\\System32\\cmd.exe"
@@ -18,8 +18,8 @@
     },
     {
       "id": 3,
-      "x": 351,
-      "y": 290,
+      "x": 397,
+      "y": 230,
       "name": "浏览器",
       "start": "com.browser",
       "icon": null

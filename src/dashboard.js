@@ -87,82 +87,41 @@ function applyAccentColor(color) {
  * 显示右键菜单
  */
 function showContextMenu(x, y, app) {
-  // 创建右键菜单容器
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.id = 'desktop-context-menu';
-  menu.style.cssText = `
-    position: fixed;
-    left: ${x}px;
-    top: ${y}px;
-    background: rgba(32, 32, 32, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 4px;
-    min-width: 160px;
-    z-index: 1000;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  `;
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
   
-  // 暗色模式样式
-  menu.classList.add('theme-dark');
-  
-  // 添加菜单选项
   const menuItems = [
-    { label: '打开', icon: '📂', action: () => launchApp(app) },
-    { label: '属性', icon: '⚙️', action: () => showAppProperties(app) }
+    { label: '打开', icon: '', action: () => launchApp(app) },
+    { label: '属性', icon: '', action: () => showAppProperties(app) }
   ];
   
   menuItems.forEach((item, index) => {
-    const menuItem = document.createElement('div');
-    menuItem.className = 'context-menu-item';
-    menuItem.style.cssText = `
-      display: flex;
-      align-items: center;
-      padding: 8px 12px;
-      cursor: pointer;
-      color: #fff;
-      font-size: 13px;
-      border-radius: 4px;
-      transition: background 0.15s ease;
-    `;
-    
-    // 添加分割线
     if (index > 0) {
       const separator = document.createElement('div');
-      separator.style.cssText = `
-        height: 1px;
-        background: rgba(255, 255, 255, 0.1);
-        margin: 4px 0;
-      `;
+      separator.className = 'context-menu-separator';
       menu.appendChild(separator);
     }
     
-    // 图标
+    const menuItem = document.createElement('div');
+    menuItem.className = 'context-menu-item';
+    
     const iconSpan = document.createElement('span');
     iconSpan.textContent = item.icon;
     iconSpan.style.marginRight = '8px';
     
-    // 文字
     const textSpan = document.createElement('span');
     textSpan.textContent = item.label;
     
     menuItem.appendChild(iconSpan);
     menuItem.appendChild(textSpan);
     
-    // 悬停效果
-    menuItem.addEventListener('mouseenter', () => {
-      menuItem.style.background = 'rgba(255, 255, 255, 0.1)';
-    });
-    
-    menuItem.addEventListener('mouseleave', () => {
-      menuItem.style.background = 'transparent';
-    });
-    
-    // 点击事件
-    menuItem.addEventListener('click', () => {
+    menuItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      console.log('[ContextMenu] Menu item clicked:', item.label, 'for app:', app.name);
       item.action();
       closeContextMenu();
     });
@@ -170,10 +129,8 @@ function showContextMenu(x, y, app) {
     menu.appendChild(menuItem);
   });
   
-  // 添加到文档
   document.body.appendChild(menu);
   
-  // 点击其他地方关闭菜单
   document.addEventListener('click', closeContextMenu);
   document.addEventListener('contextmenu', closeContextMenu);
 }
@@ -205,31 +162,53 @@ async function launchApp(app) {
 }
 
 /**
- * 显示应用属性
+ * 显示应用属性窗口
  */
 async function showAppProperties(app) {
-  // 获取应用详细信息
-  const appInfo = await getAppInfo(app.start);
-  
-  let properties = `名称: ${app.name}\n`;
-  properties += `ID: ${app.id}\n`;
-  properties += `启动文件: ${app.start}\n`;
-  
-  if (appInfo) {
-    if (appInfo.description) {
-      properties += `描述: ${appInfo.description}\n`;
-    }
-    if (appInfo.exePath) {
-      properties += `执行路径: ${appInfo.exePath}\n`;
-    }
-    if (appInfo.icon) {
-      properties += `图标路径: ${appInfo.icon}\n`;
-    }
+  try {
+    console.log('[Properties] showAppProperties called for app:', app.name, 'start:', app.start);
+    
+    // 获取应用详细信息
+    console.log('[Properties] Getting app info...');
+    const appInfo = await getAppInfo(app.start);
+    console.log('[Properties] App info received:', JSON.stringify(appInfo));
+    
+    // 获取当前主题设置
+    console.log('[Properties] Getting current user ID...');
+    const userId = await getCurrentUserId();
+    console.log('[Properties] User ID received:', userId);
+    
+    console.log('[Properties] Getting settings for user:', userId);
+    const settings = await window.electronAPI.config.getSettings(userId);
+    console.log('[Properties] Settings received:', JSON.stringify(settings));
+    
+    // 调用主进程创建独立的属性窗口
+    const appData = {
+      id: app.id,
+      name: app.name,
+      start: app.start,
+      description: appInfo ? (appInfo.description || '') : '',
+      exePath: appInfo ? (appInfo.exePath || '') : '',
+      icon: appInfo ? (appInfo.icon || '') : '',
+      theme: settings.theme || 'dark',
+      accentColor: settings.accentColor || '#0078D4'
+    };
+    
+    console.log('[Properties] Sending app data to main process:', JSON.stringify(appData));
+    await window.electronAPI.properties.show(appData);
+    console.log('[Properties] Properties window shown');
+  } catch (error) {
+    console.error('[Properties] Error in showAppProperties:', error);
+    console.error('[Properties] Error stack:', error.stack);
   }
-  
-  properties += `位置: (${app.x || 15}, ${app.y || 15})`;
-  
-  alert(properties);
+}
+
+/**
+ * 关闭属性窗口（已改为独立窗口，此函数保留兼容）
+ */
+function closePropertiesWindow() {
+  // 属性窗口现在是独立的 Electron BrowserWindow，
+  // 由用户通过关闭按钮或 ESC 键自行关闭
 }
 
 // 获取当前登录用户ID
@@ -268,13 +247,22 @@ async function loadDesktopBackground() {
 
 // 加载桌面应用图标
 async function loadDesktopApps() {
+  console.log('[DesktopApps] loadDesktopApps called');
   try {
     const currentUserId = await getCurrentUserId();
-    if (!currentUserId) return;
+    console.log('[DesktopApps] Current user ID:', currentUserId);
+    if (!currentUserId) {
+      console.log('[DesktopApps] No current user ID, returning');
+      return;
+    }
     
     // 获取当前用户的桌面配置
     const desktopConfig = await window.electronAPI.config.getUserDesktop(currentUserId);
-    if (!desktopConfig || !desktopConfig.desktopapp || desktopConfig.desktopapp.length === 0) return;
+    console.log('[DesktopApps] Desktop config:', JSON.stringify(desktopConfig));
+    if (!desktopConfig || !desktopConfig.desktopapp || desktopConfig.desktopapp.length === 0) {
+      console.log('[DesktopApps] No desktop apps found');
+      return;
+    }
     
     // 创建桌面应用容器
     const container = document.createElement('div');
@@ -323,6 +311,7 @@ async function loadDesktopApps() {
       iconElement.alt = app.name;
       iconElement.style.cssText = 'width: 48px; height: 48px; margin-bottom: 4px;';
       iconElement.onerror = function() {
+        console.log('[DesktopApps] Icon load failed, using default:', finalIconPath);
         this.src = '../difproico.png';
       };
       
@@ -370,6 +359,7 @@ async function loadDesktopApps() {
       
       // 右键菜单事件
       appElement.addEventListener('contextmenu', (e) => {
+        console.log('[DesktopApps] Contextmenu event fired for app:', app.name);
         e.preventDefault();
         e.stopPropagation();
         
@@ -476,6 +466,8 @@ async function loadDesktopApps() {
       appElement.appendChild(nameElement);
       container.appendChild(appElement);
     }
+    
+    console.log('[DesktopApps] loadDesktopApps completed successfully');
     
   } catch (error) {
     console.error('Failed to load desktop apps:', error);
@@ -935,6 +927,9 @@ function initStartMenu() {
   
   // 绑定电源按钮
   bindPowerButtons();
+  
+  // 绑定用户菜单
+  bindUserMenu();
 }
 
 /**
@@ -995,7 +990,9 @@ async function loadUserInfo() {
  */
 async function loadStartMenuApps() {
   try {
-    const apps = await window.electronAPI.config.getDesktopApps();
+    const userId = await getCurrentUserId();
+    const desktopData = await window.electronAPI.config.getUserDesktop(userId);
+    const apps = desktopData ? desktopData.desktopapp : [];
     const appList = document.getElementById('start-menu-app-list');
     
     if (!appList) return;
@@ -1008,22 +1005,32 @@ async function loadStartMenuApps() {
     }
     
     // 创建应用项
-    apps.forEach(app => {
+    for (const app of apps) {
       const appItem = document.createElement('div');
       appItem.className = 'start-menu-app-item';
       appItem.dataset.appName = app.start;
+      
+      // 获取应用图标（优先使用 desktop.json 中的图标，否则从 .app 文件获取）
+      let iconPath = app.icon;
+      
+      // 如果 desktop.json 中的图标为空或无效，尝试从 .app 文件获取
+      if (!iconPath || iconPath.trim() === '' || !isValidImagePath(iconPath)) {
+        const appInfo = await getAppInfo(app.start);
+        if (appInfo && appInfo.icon && isValidImagePath(appInfo.icon)) {
+          iconPath = appInfo.icon;
+        }
+      }
       
       // 图标
       const iconElement = document.createElement('img');
       iconElement.className = 'start-menu-app-icon';
       
-      if (app.icon && app.icon !== '' && app.icon !== null) {
-        iconElement.src = app.icon;
-      } else {
-        iconElement.src = 'difproico.png';
-      }
+      // 使用最终确定的图标路径，无效则使用默认图标
+      const finalIconPath = isValidImagePath(iconPath) ? iconPath : '../difproico.png';
+      iconElement.src = finalIconPath;
+      
       iconElement.onerror = () => {
-        iconElement.src = 'difproico.png';
+        iconElement.src = '../difproico.png';
       };
       
       // 名称
@@ -1044,7 +1051,7 @@ async function loadStartMenuApps() {
           alert(`启动失败: ${result.error}`);
         }
       });
-    });
+    }
   } catch (error) {
     console.error('Failed to load start menu apps:', error);
   }
@@ -1123,5 +1130,63 @@ function closePowerSubmenu() {
   const powerSubmenu = document.getElementById('power-submenu');
   if (powerSubmenu && !powerSubmenu.classList.contains('hidden')) {
     powerSubmenu.classList.add('hidden');
+  }
+}
+
+/**
+ * 绑定用户菜单按钮事件
+ */
+function bindUserMenu() {
+  const userMenuBtn = document.getElementById('user-menu-btn');
+  const userSubmenu = document.getElementById('user-submenu');
+  
+  if (userMenuBtn && userSubmenu) {
+    userMenuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closePowerSubmenu();
+      if (userSubmenu.classList.contains('hidden')) {
+        userSubmenu.classList.remove('hidden');
+      } else {
+        userSubmenu.classList.add('hidden');
+      }
+    });
+  }
+  
+  document.addEventListener('click', () => {
+    if (userSubmenu && !userSubmenu.classList.contains('hidden')) {
+      userSubmenu.classList.add('hidden');
+    }
+  });
+  
+  const lockBtn = document.getElementById('start-menu-lock');
+  if (lockBtn) {
+    lockBtn.addEventListener('click', () => {
+      closeUserSubmenu();
+      closeStartMenu();
+      showConfirmModal('确认锁定吗？', () => {
+        window.electronAPI.window.openDashboard();
+      });
+    });
+  }
+  
+  const logoutBtn = document.getElementById('start-menu-logout');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      closeUserSubmenu();
+      closeStartMenu();
+      showConfirmModal('确认注销吗？', () => {
+        window.electronAPI.window.openDashboard();
+      });
+    });
+  }
+}
+
+/**
+ * 关闭用户子菜单
+ */
+function closeUserSubmenu() {
+  const userSubmenu = document.getElementById('user-submenu');
+  if (userSubmenu && !userSubmenu.classList.contains('hidden')) {
+    userSubmenu.classList.add('hidden');
   }
 }

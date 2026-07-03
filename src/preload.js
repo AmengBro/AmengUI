@@ -73,7 +73,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 窗口操作 API
   window: {
     /** 打开欢迎页面 */
-    openDashboard: () => ipcRenderer.invoke('window:openDashboard')
+    openDashboard: () => ipcRenderer.invoke('window:openDashboard'),
+    /** 获取当前窗口边界 */
+    getCurrentWindowBounds: () => ipcRenderer.invoke('window:getBounds'),
+    /** 设置窗口位置 */
+    setWindowPosition: (x, y) => ipcRenderer.invoke('window:setPosition', x, y)
   },
   
   // 应用启动 API
@@ -82,6 +86,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     launch: (appName) => ipcRenderer.invoke('app:launch', appName),
     /** 获取应用信息 */
     getInfo: (appName) => ipcRenderer.invoke('app:getInfo', appName)
+  },
+  
+  // 属性窗口 API
+  properties: {
+    /** 显示应用属性窗口 */
+    show: (appData) => ipcRenderer.invoke('properties:show', appData)
   }
 });
 

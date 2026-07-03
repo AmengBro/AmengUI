@@ -440,6 +440,156 @@ ipcMain.handle('window:openDashboard', async () => {
   }
 });
 
+// 属性窗口
+ipcMain.handle('properties:show', async (event, appData) => {
+  console.log('[Properties IPC] properties:show received, appData:', JSON.stringify(appData));
+  
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const iconPath = path.join(__dirname, '../favicon.ico');
+  
+  const propsWindow = new BrowserWindow({
+    width: 360,
+    height: 380,
+    x: Math.floor((width - 360) / 2),
+    y: Math.floor((height - 380) / 2),
+    frame: false,
+    fullscreen: false,
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    resizable: false,
+    icon: iconPath,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  
+  const theme = appData.theme || 'dark';
+  const accentColor = appData.accentColor || '#0078D4';
+  
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${appData.name} - 属性</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          background: ${theme === 'dark' ? 'rgba(32, 32, 32, 0.95)' : 'rgba(255, 255, 255, 0.98)'};
+          color: ${theme === 'dark' ? '#fff' : '#333'};
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          overflow: hidden;
+          backdrop-filter: blur(15px);
+          -webkit-backdrop-filter: blur(15px);
+        }
+        .title-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
+          border-bottom: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+          cursor: move;
+          -webkit-app-region: drag;
+        }
+        .title-text {
+          font-size: 14px;
+          font-weight: 500;
+        }
+        .close-btn {
+          width: 28px;
+          height: 28px;
+          border: none;
+          background: transparent;
+          color: ${theme === 'dark' ? '#999' : '#666'};
+          font-size: 20px;
+          cursor: pointer;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.15s, color 0.15s;
+          -webkit-app-region: no-drag;
+        }
+        .close-btn:hover {
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'};
+          color: ${theme === 'dark' ? '#fff' : '#333'};
+        }
+        .content {
+          padding: 16px;
+          max-height: calc(100vh - 48px);
+          overflow-y: auto;
+        }
+        .content::-webkit-scrollbar { width: 6px; }
+        .content::-webkit-scrollbar-track { background: transparent; }
+        .content::-webkit-scrollbar-thumb { 
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'}; 
+          border-radius: 3px; 
+        }
+        .prop-row {
+          display: flex;
+          margin-bottom: 12px;
+        }
+        .prop-label {
+          width: 80px;
+          color: ${theme === 'dark' ? '#999' : '#666'};
+          font-size: 13px;
+          flex-shrink: 0;
+        }
+        .prop-value {
+          flex: 1;
+          font-size: 13px;
+          word-break: break-all;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="title-bar">
+        <span class="title-text">${appData.name} - 属性</span>
+        <button class="close-btn" onclick="window.close()">&times;</button>
+      </div>
+      <div class="content">
+        <div class="prop-row"><span class="prop-label">名称</span><span class="prop-value">${appData.name}</span></div>
+        <div class="prop-row"><span class="prop-label">ID</span><span class="prop-value">${appData.id}</span></div>
+        <div class="prop-row"><span class="prop-label">启动文件</span><span class="prop-value">${appData.start}</span></div>
+        <div class="prop-row"><span class="prop-label">描述</span><span class="prop-value">${appData.description || '无'}</span></div>
+        <div class="prop-row"><span class="prop-label">执行路径</span><span class="prop-value">${appData.exePath || '无'}</span></div>
+        <div class="prop-row"><span class="prop-label">图标路径</span><span class="prop-value">${appData.icon || '无'}</span></div>
+      </div>
+      <script>
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') window.close();
+        });
+      </script>
+    </body>
+    </html>
+  `;
+  
+  propsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+  console.log('[Properties IPC] Properties window created');
+  
+  propsWindow.on('closed', () => {
+    console.log('[Properties IPC] Properties window closed');
+  });
+});
+
+// 窗口边界和位置操作
+ipcMain.handle('window:getBounds', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    return win.getBounds();
+  }
+  return { x: 0, y: 0, width: 0, height: 0 };
+});
+
+ipcMain.handle('window:setPosition', async (event, x, y) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    win.setPosition(Math.floor(x), Math.floor(y));
+  }
+});
+
 // ==================== 应用启动功能 ====================
 
 /**
