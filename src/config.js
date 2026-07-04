@@ -12,11 +12,27 @@
 const fs = require('fs').promises;
 const path = require('path');
 
-// 配置文件目录路径
-const CONFIG_DIR = path.join(__dirname, '../config');
-// 用户配置文件路径
+function getAppRoot() {
+  const isPackaged = require('electron').app?.isPackaged || false;
+  
+  if (!isPackaged) {
+    return path.join(__dirname, '..');
+  }
+  
+  const exePath = process.execPath;
+  const appRoot = path.dirname(exePath);
+  
+  if (appRoot.endsWith('resources')) {
+    return path.join(appRoot, '..');
+  }
+  
+  return appRoot;
+}
+
+const APP_ROOT = getAppRoot();
+
+const CONFIG_DIR = path.join(APP_ROOT, 'config');
 const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
-// 全局系统配置路径
 const SYSTEM_FILE = path.join(CONFIG_DIR, 'system.json');
 
 // 默认用户列表

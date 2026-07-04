@@ -8,6 +8,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // 设置变更回调（preload 作用域）
 let settingsChangeCallback = null;
+let lockscreenInitCallback = null;
 
 // 暴露安全的 API 接口给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -80,7 +81,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 获取当前窗口边界 */
     getCurrentWindowBounds: () => ipcRenderer.invoke('window:getBounds'),
     /** 设置窗口位置 */
-    setWindowPosition: (x, y) => ipcRenderer.invoke('window:setPosition', x, y)
+    setWindowPosition: (x, y) => ipcRenderer.invoke('window:setPosition', x, y),
+    /** 注销登录，返回登录界面 */
+    logout: () => ipcRenderer.invoke('window:logout')
   },
   
   // 应用启动 API
@@ -103,6 +106,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
     show: (settingsData) => ipcRenderer.invoke('settings:show', settingsData),
     /** 注册设置变更回调 */
     onChange: (callback) => { settingsChangeCallback = callback; }
+  },
+  
+  // 屏幕锁定 API
+  screen: {
+    /** 锁定屏幕 */
+    lock: () => ipcRenderer.invoke('screen:lock')
+  },
+  
+  // 锁屏界面 API
+  lockscreen: {
+    /** 初始化锁屏，获取当前用户信息 */
+    init: () => ipcRenderer.invoke('lockscreen:init'),
+    /** 注册锁屏初始化回调 */
+    onInit: (callback) => { lockscreenInitCallback = callback; },
+    /** 解锁屏幕 */
+    unlock: () => ipcRenderer.send('lockscreen:unlock')
+  },
+  
+  // 电源管理 API
+  power: {
+    /** 关机 */
+    shutdown: () => ipcRenderer.send('auth:shutdown'),
+    /** 重启 */
+    restart: () => ipcRenderer.send('auth:restart'),
+    /** Shell模式 */
+    shell: () => ipcRenderer.send('auth:shell')
   }
 });
 

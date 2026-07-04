@@ -12,6 +12,25 @@ const config = require('./config');
 
 const execAsync = promisify(exec);
 
+function getAppRoot() {
+  const isPackaged = app?.isPackaged || false;
+  
+  if (!isPackaged) {
+    return path.join(__dirname, '..');
+  }
+  
+  const exePath = process.execPath;
+  const appRoot = path.dirname(exePath);
+  
+  if (appRoot.endsWith('resources')) {
+    return path.join(appRoot, '..');
+  }
+  
+  return appRoot;
+}
+
+const APP_ROOT = getAppRoot();
+
 /**
  * 使用 Windows API 强制将窗口置底
  * @param {number} hwnd - 窗口句柄
@@ -85,6 +104,7 @@ if (require('electron-squirrel-startup')) {
 
 // 主窗口引用
 let mainWindow = null;
+let dashboardWindow = null;
 
 /**
  * 创建应用主窗口
@@ -275,7 +295,8 @@ ipcMain.handle('config:getSettings', async (_, userId) => {
 });
 
 ipcMain.handle('config:verifyUser', async (_, username, password) => {
-  return await config.verifyUser(username, password);
+  const result = await config.verifyUser(username, password);
+  return result;
 });
 
 ipcMain.handle('config:addUser', async (_, username, password, avatar) => {
@@ -393,13 +414,17 @@ ipcMain.handle('fs:readDir', async (_, dirPath) => {
 });
 
 // 窗口操作
-ipcMain.handle('window:openDashboard', async () => {
+ipcMain.handle('window:openDashboard', async (_, userId) => {
+  if (userId) {
+    const users = await config.getUsers();
+    currentLoggedInUser = users.find(u => u.userid === userId);
+  }
+  
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   
-  // 应用图标路径
   const iconPath = path.join(__dirname, '../favicon.ico');
   
-  const dashboardWindow = new BrowserWindow({
+  dashboardWindow = new BrowserWindow({
     width: width,
     height: height,
     x: 0,
@@ -409,24 +434,20 @@ ipcMain.handle('window:openDashboard', async () => {
     alwaysOnTop: false,
     skipTaskbar: false,
     resizable: false,
-    icon: iconPath,         // 应用图标
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
   
-  // 加载 dashboard 页面
   dashboardWindow.loadFile(path.join(__dirname, 'dashboard.html'));
   
-  // 打开开发者工具（调试用）
   dashboardWindow.webContents.openDevTools();
   
-  // 设置 dashboard 窗口置底
   dashboardWindow.webContents.on('did-finish-load', () => {
     console.log('Dashboard loaded, setting to bottom');
     setWindowToBottom(dashboardWindow);
     
-    // 定期检查并保持置底状态
     setInterval(() => {
       if (dashboardWindow && !dashboardWindow.isDestroyed()) {
         setWindowToBottom(dashboardWindow);
@@ -434,10 +455,69 @@ ipcMain.handle('window:openDashboard', async () => {
     }, 2000);
   });
   
-  // 关闭登录窗口
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();
   }
+});
+
+ipcMain.handle('window:logout', async () => {
+  currentLoggedInUser = null;
+  
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const iconPath = path.join(__dirname, '../favicon.ico');
+  
+  const allWindows = BrowserWindow.getAllWindows();
+  for (const win of allWindows) {
+    if (!win.isDestroyed()) {
+      win.close();
+    }
+  }
+  
+  mainWindow = new BrowserWindow({
+    width: width,
+    height: height,
+    x: 0,
+    y: 0,
+    frame: false,
+    fullscreen: false,
+    maximizable: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: false,
+    icon: iconPath,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  
+  mainWindow.setPosition(0, 0);
+  mainWindow.setSize(width, height);
+  
+  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  
+  mainWindow.webContents.openDevTools();
+  
+  mainWindow.on('show', () => {
+    setWindowToBottom();
+  });
+  
+  mainWindow.webContents.on('did-finish-load', () => {
+    setWindowToBottom();
+  });
+  
+  setInterval(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      setWindowToBottom();
+    }
+  }, 2000);
+  
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Escape' && !input.control && !input.alt && !input.meta) {
+      mainWindow.close();
+    }
+  });
 });
 
 // 设置窗口
@@ -958,8 +1038,7 @@ ipcMain.handle('window:setPosition', async (event, x, y) => {
  */
 ipcMain.handle('app:launch', async (_, appName) => {
   try {
-    // 构建 .app 文件路径（rootdir 在 AmengUI 目录内）
-    const appPath = path.join(__dirname, '..', 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    const appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
     console.log('Attempting to launch app:', appPath);
     
     // 读取 .app 文件内容
@@ -999,7 +1078,7 @@ ipcMain.handle('app:launch', async (_, appName) => {
 // 获取应用信息
 ipcMain.handle('app:getInfo', async (_, appName) => {
   try {
-    const appPath = path.join(__dirname, '..', 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    const appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
     console.log('Getting app info:', appPath);
     
     let appData;
@@ -1080,6 +1159,78 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
       success: false, 
       error: error.message 
     };
+  }
+});
+
+let lockWindow = null;
+let currentLoggedInUser = null;
+
+ipcMain.handle('screen:lock', async () => {
+  if (lockWindow) {
+    return;
+  }
+  
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  
+  lockWindow = new BrowserWindow({
+    width: width,
+    height: height,
+    x: 0,
+    y: 0,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    fullscreen: false,
+    resizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  
+  lockWindow.loadFile(path.join(__dirname, 'lockscreen.html'));
+  
+  lockWindow.on('closed', () => {
+    lockWindow = null;
+  });
+  
+  lockWindow.on('blur', () => {
+    if (lockWindow) {
+      lockWindow.focus();
+    }
+  });
+});
+
+ipcMain.handle('lockscreen:init', async () => {
+  if (!currentLoggedInUser) {
+    const lastUserId = await config.getLastLoginUserId();
+    if (lastUserId) {
+      const users = await config.getUsers();
+      currentLoggedInUser = users.find(u => u.userid === lastUserId);
+    }
+  }
+  
+  if (currentLoggedInUser) {
+    const settings = await config.getSettings(currentLoggedInUser.userid);
+    const desktop = await config.getUserDesktop(currentLoggedInUser.userid);
+    
+    return {
+      userId: currentLoggedInUser.userid,
+      username: currentLoggedInUser.username,
+      avatar: currentLoggedInUser.photo || null,
+      theme: settings.theme || 'dark',
+      accentColor: settings.accentColor || '#0078D4',
+      background: desktop.desktopbg || null
+    };
+  }
+  return null;
+});
+
+ipcMain.on('lockscreen:unlock', () => {
+  if (lockWindow) {
+    lockWindow.close();
+    lockWindow = null;
   }
 });
 

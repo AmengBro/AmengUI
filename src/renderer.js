@@ -352,7 +352,7 @@ async function handleLogin() {
     // 登录成功，保存当前用户ID
     await window.electronAPI.config.setLastLoginUserId(currentUser.userid);
     // 打开欢迎页面
-    window.electronAPI.window.openDashboard();
+    window.electronAPI.window.openDashboard(currentUser.userid);
   } else {
     // 登录失败，显示错误信息
     document.getElementById('error-msg').textContent = '密码错误，请重试。';

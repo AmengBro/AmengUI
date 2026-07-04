@@ -1076,6 +1076,9 @@ function initStartMenu() {
   
   // 绑定用户菜单
   bindUserMenu();
+  
+  // 绑定模态框事件
+  bindModalEvents();
 }
 
 /**
@@ -1217,6 +1220,48 @@ async function loadStartMenuApps() {
 /**
  * 绑定电源按钮事件
  */
+let confirmCallback = null;
+
+function showConfirmModal(message, callback) {
+  confirmCallback = callback;
+  const modalOverlay = document.getElementById('modal-overlay');
+  const modalMessage = document.getElementById('modal-message');
+  modalMessage.textContent = message;
+  modalOverlay.classList.remove('hidden');
+}
+
+function bindModalEvents() {
+  const cancelBtn = document.getElementById('modal-btn-cancel');
+  const confirmBtn = document.getElementById('modal-btn-confirm');
+  const modalOverlay = document.getElementById('modal-overlay');
+  
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      modalOverlay.classList.add('hidden');
+      confirmCallback = null;
+    });
+  }
+  
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', () => {
+      modalOverlay.classList.add('hidden');
+      if (confirmCallback) {
+        confirmCallback();
+        confirmCallback = null;
+      }
+    });
+  }
+  
+  if (modalOverlay) {
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) {
+        modalOverlay.classList.add('hidden');
+        confirmCallback = null;
+      }
+    });
+  }
+}
+
 function bindPowerButtons() {
   const powerBtn = document.getElementById('power-btn-main');
   const powerSubmenu = document.getElementById('power-submenu');
@@ -1320,10 +1365,8 @@ function bindUserMenu() {
     lockBtn.addEventListener('click', () => {
       closeUserSubmenu();
       closeStartMenu();
-      showConfirmModal('确认锁定吗？', () => {
-        clipboard = null;
-        window.electronAPI.window.openDashboard();
-      });
+      clipboard = null;
+      window.electronAPI.screen.lock();
     });
   }
 
@@ -1334,7 +1377,7 @@ function bindUserMenu() {
       closeStartMenu();
       showConfirmModal('确认注销吗？', () => {
         clipboard = null;
-        window.electronAPI.window.openDashboard();
+        window.electronAPI.window.logout();
       });
     });
   }
