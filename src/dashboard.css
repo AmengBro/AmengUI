@@ -30,10 +30,7 @@ body.theme-bright {
 }
 
 .container {
-  text-align: center;
-  padding-bottom: 80px;
-  position: relative;
-  z-index: 100;
+  display: none;
 }
 
 h1 {
@@ -521,6 +518,12 @@ body.theme-bright .desktop-app.dragging {
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-color) 30%, transparent);
 }
 
+/* 剪切状态淡化 */
+.desktop-app.cut {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+
 /* 桌面容器 */
 #desktop-apps {
   background: transparent;
@@ -650,6 +653,21 @@ body.theme-bright .desktop-app.dragging {
   background: rgba(255, 255, 255, 0.1);
 }
 
+.context-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.context-menu-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .context-menu-separator {
   height: 1px;
   background: rgba(255, 255, 255, 0.1);
@@ -680,6 +698,36 @@ body.theme-bright .context-menu-separator {
   flex: 1;
   padding: 12px;
   overflow-y: auto;
+  max-height: 400px;
+}
+
+.start-menu-apps::-webkit-scrollbar {
+  width: 6px;
+}
+
+.start-menu-apps::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.start-menu-apps::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.start-menu-apps::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+body.theme-bright .start-menu-apps::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
 }
 
 .start-menu-section-title {

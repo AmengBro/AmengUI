@@ -18,11 +18,43 @@
     },
     {
       "id": 3,
-      "x": 397,
-      "y": 230,
+      "x": 477,
+      "y": 415,
       "name": "浏览器",
       "start": "com.browser",
       "icon": null
+    },
+    {
+      "id": 1783124938824,
+      "x": 429,
+      "y": 503,
+      "name": "终端",
+      "start": "com.terminal",
+      "icon": "C:\\Windows\\System32\\cmd.exe"
+    },
+    {
+      "id": 1783124944403,
+      "x": 300,
+      "y": 394,
+      "name": "资源管理器",
+      "start": "com.explorer",
+      "icon": null
+    },
+    {
+      "id": 1783124955109,
+      "x": 518,
+      "y": 340,
+      "name": "浏览器",
+      "start": "com.browser",
+      "icon": null
+    },
+    {
+      "id": 1783125094914,
+      "x": 580,
+      "y": 636,
+      "name": "终端",
+      "start": "com.terminal",
+      "icon": "C:\\Windows\\System32\\cmd.exe"
     }
   ],
   "desktopbg": null

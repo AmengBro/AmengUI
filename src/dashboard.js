@@ -8,12 +8,22 @@ let currentTheme = 'dark';
 // 任务栏状态
 let isTaskbarFloating = true;
 
-// 监听 ESC 键关闭页面
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    window.close();
-  }
-});
+// 剪贴板状态：null | { mode: 'copy'|'cut', app: Object }
+let clipboard = null;
+
+// 开始菜单加载标志，防止重复加载
+let isStartMenuLoading = false;
+
+// 右键菜单图标库（内联SVG）
+const MENU_ICONS = {
+  open: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>',
+  properties: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 14V6c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v15c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5H3V6h14v8h2zM12 2H4v2h8V2zm9 9.41L19.59 10 17 12.59 14.41 10 13 11.41 15.59 14 13 16.59 14.41 18 17 15.41 19.59 18 21 16.59 18.41 14 21 11.41z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
+  cut: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M9.64 7.64c.23-.5.36-1.05.36-1.64 0-2.21-1.79-4-4-4S2 3.79 2 6s1.79 4 4 4c.59 0 1.14-.13 1.64-.36L10 12l-2.36 2.36C7.14 14.13 6.59 14 6 14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4c0-.59-.13-1.14-.36-1.64L12 14l7 7h3v-1L9.64 7.64zM6 8c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm0 12c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm6-7.5c-.28 0-.5-.22-.5-.5s.22-.5.5-.5.5.22.5.5-.22.5-.5.5zM19 3l-6 6 2 2 7-7V3z"/></svg>',
+  paste: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>'
+};
 
 // 点击空白处取消应用选中状态
 document.addEventListener('click', (e) => {
@@ -84,7 +94,10 @@ function applyAccentColor(color) {
 }
 
 /**
- * 显示右键菜单
+ * 显示右键菜单（应用图标 / 桌面空白处）
+ * @param {number} x - 屏幕坐标x
+ * @param {number} y - 屏幕坐标y
+ * @param {Object|null} app - 应用对象，为null时显示桌面空白菜单
  */
 function showContextMenu(x, y, app) {
   const menu = document.createElement('div');
@@ -92,45 +105,61 @@ function showContextMenu(x, y, app) {
   menu.id = 'desktop-context-menu';
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
-  
-  const menuItems = [
-    { label: '打开', icon: '', action: () => launchApp(app) },
-    { label: '属性', icon: '', action: () => showAppProperties(app) }
-  ];
-  
+
+  let menuItems;
+  if (app) {
+    // 应用图标右键菜单
+    menuItems = [
+      { label: '打开', icon: MENU_ICONS.open, action: () => launchApp(app) },
+      { label: '复制', icon: MENU_ICONS.copy, action: () => copyApp(app) },
+      { label: '剪切', icon: MENU_ICONS.cut, action: () => cutApp(app) },
+      { label: '属性', icon: MENU_ICONS.properties, action: () => showAppProperties(app) }
+    ];
+  } else {
+    // 桌面空白处右键菜单
+    menuItems = [
+      { label: '刷新', icon: MENU_ICONS.refresh, action: () => refreshDesktop() },
+      { label: '设置', icon: MENU_ICONS.settings, action: () => openSettings() }
+    ];
+    // 仅在有剪贴板内容时显示粘贴
+    if (clipboard) {
+      menuItems.push({ label: '粘贴', icon: MENU_ICONS.paste, action: () => pasteApp(x, y) });
+    }
+  }
+
   menuItems.forEach((item, index) => {
     if (index > 0) {
       const separator = document.createElement('div');
       separator.className = 'context-menu-separator';
       menu.appendChild(separator);
     }
-    
+
     const menuItem = document.createElement('div');
     menuItem.className = 'context-menu-item';
-    
+
     const iconSpan = document.createElement('span');
-    iconSpan.textContent = item.icon;
-    iconSpan.style.marginRight = '8px';
-    
+    iconSpan.className = 'context-menu-icon';
+    iconSpan.innerHTML = item.icon;
+
     const textSpan = document.createElement('span');
     textSpan.textContent = item.label;
-    
+
     menuItem.appendChild(iconSpan);
     menuItem.appendChild(textSpan);
-    
+
     menuItem.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
-      console.log('[ContextMenu] Menu item clicked:', item.label, 'for app:', app.name);
+      console.log('[ContextMenu] Menu item clicked:', item.label);
       item.action();
       closeContextMenu();
     });
-    
+
     menu.appendChild(menuItem);
   });
-  
+
   document.body.appendChild(menu);
-  
+
   document.addEventListener('click', closeContextMenu);
   document.addEventListener('contextmenu', closeContextMenu);
 }
@@ -146,6 +175,142 @@ function closeContextMenu() {
   document.removeEventListener('click', closeContextMenu);
   document.removeEventListener('contextmenu', closeContextMenu);
 }
+
+/**
+ * 复制应用（仅写入剪贴板，不修改桌面）
+ */
+function copyApp(app) {
+  clipboard = { mode: 'copy', app: { ...app } };
+  console.log('[Clipboard] Copied app:', app.name);
+}
+
+/**
+ * 剪切应用（写入剪贴板并淡化图标）
+ */
+function cutApp(app) {
+  // 清除之前的剪切淡化效果
+  clearCutHighlight();
+  clipboard = { mode: 'cut', app: { ...app } };
+  // 淡化当前剪切的应用图标
+  const el = document.querySelector(`.desktop-app[data-app-id="${app.id}"]`);
+  if (el) el.classList.add('cut');
+  console.log('[Clipboard] Cut app:', app.name);
+}
+
+/**
+ * 清除所有剪切淡化效果
+ */
+function clearCutHighlight() {
+  document.querySelectorAll('.desktop-app.cut').forEach(el => el.classList.remove('cut'));
+}
+
+/**
+ * 粘贴应用
+ * @param {number} x - 粘贴位置x
+ * @param {number} y - 粘贴位置y
+ */
+async function pasteApp(x, y) {
+  if (!clipboard) return;
+  try {
+    const userId = await getCurrentUserId();
+    if (clipboard.mode === 'copy') {
+      // 复制：新增一个应用
+      const newApp = {
+        name: clipboard.app.name,
+        start: clipboard.app.start,
+        icon: clipboard.app.icon || null,
+        x: x,
+        y: y
+      };
+      await window.electronAPI.config.addDesktopApp(userId, newApp);
+      console.log('[Clipboard] Pasted (copied) app:', newApp.name);
+    } else if (clipboard.mode === 'cut') {
+      // 剪切：更新位置，移除淡化，清空剪贴板
+      await window.electronAPI.config.updateDesktopAppPosition(userId, clipboard.app.id, x, y);
+      clearCutHighlight();
+      clipboard = null;
+      console.log('[Clipboard] Pasted (cut) app, clipboard cleared');
+    }
+    // 刷新桌面
+    await refreshDesktop();
+  } catch (error) {
+    console.error('[Clipboard] Paste failed:', error);
+  }
+}
+
+/**
+ * 刷新桌面（重新加载应用）
+ */
+async function refreshDesktop() {
+  const container = document.getElementById('desktop-apps');
+  if (container) container.remove();
+  clipboard = null;
+  await loadDesktopApps();
+  console.log('[Desktop] Refreshed');
+}
+
+/**
+ * 打开临时设置窗口
+ */
+function openSettings() {
+  const bgImage = document.body.style.backgroundImage;
+  const desktopBackground = bgImage ? bgImage.replace(/^url\(['"]?(.*?)['"]?\)$/, '$1') : null;
+  
+  const settingsData = {
+    theme: currentTheme,
+    accentColor: currentAccentColor,
+    isTaskbarFloating: isTaskbarFloating,
+    desktopBackground: desktopBackground
+  };
+  window.electronAPI.settings.show(settingsData);
+}
+
+/**
+ * 监听设置变更（从设置窗口发送）
+ */
+window.electronAPI.settings.onChange(async (change) => {
+  console.log('[Settings] Received settings change:', change);
+  switch (change.type) {
+    case 'theme':
+      currentTheme = change.value;
+      applyTheme(currentTheme);
+      break;
+    case 'accentColor':
+      currentAccentColor = change.value;
+      applyAccentColor(currentAccentColor);
+      break;
+    case 'taskbarMode':
+      isTaskbarFloating = change.value;
+      const taskbar = document.getElementById('taskbar');
+      if (taskbar) {
+        if (isTaskbarFloating) {
+          taskbar.classList.remove('docked');
+          taskbar.classList.add('floating');
+        } else {
+          taskbar.classList.remove('floating');
+          taskbar.classList.add('docked');
+        }
+      }
+      break;
+    case 'desktopBackground':
+      if (change.value) {
+        document.body.style.backgroundImage = `url('${change.value}')`;
+        document.body.style.backgroundSize = 'cover';
+        document.body.style.backgroundPosition = 'center';
+        document.body.style.backgroundRepeat = 'no-repeat';
+      } else {
+        document.body.style.backgroundImage = '';
+        document.body.style.backgroundSize = '';
+        document.body.style.backgroundPosition = '';
+        document.body.style.backgroundRepeat = '';
+      }
+      const userId = await getCurrentUserId();
+      if (userId) {
+        await window.electronAPI.config.setDesktopBackground(userId, change.value);
+      }
+      break;
+  }
+});
 
 /**
  * 启动应用
@@ -269,6 +434,17 @@ async function loadDesktopApps() {
     container.id = 'desktop-apps';
     container.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: calc(100% - 48px); padding: 20px; z-index: 1; pointer-events: auto;';
     document.body.appendChild(container);
+
+    // 桌面空白处右键菜单
+    container.addEventListener('contextmenu', (e) => {
+      // 只在点击空白处时触发（非应用图标）
+      if (e.target === container) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeContextMenu();
+        showContextMenu(e.clientX, e.clientY, null);
+      }
+    });
     
     // 渲染每个桌面应用
     for (const app of desktopConfig.desktopapp) {
@@ -845,36 +1021,6 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error('loadDesktopApps failed:', err);
   });
   
-  // 绑定切换主题按钮
-  const toggleBtn = document.getElementById('toggle-theme-btn');
-  console.log('toggle-theme-btn found:', !!toggleBtn);
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => {
-      console.log('Toggle theme button clicked');
-      toggleTheme();
-    });
-    console.log('toggle-theme-btn click listener added');
-  }
-  
-  // 绑定切换任务栏按钮
-  const toggleTaskbarBtn = document.getElementById('toggle-taskbar-btn');
-  console.log('toggle-taskbar-btn found:', !!toggleTaskbarBtn);
-  if (toggleTaskbarBtn) {
-    toggleTaskbarBtn.addEventListener('click', () => {
-      console.log('Toggle taskbar button clicked');
-      toggleTaskbarMode();
-    });
-    console.log('toggle-taskbar-btn click listener added');
-  }
-  
-  // 绑定测试按钮
-  const testBtn = document.getElementById('test-btn');
-  if (testBtn) {
-    testBtn.addEventListener('click', () => {
-      alert('Test button works!');
-    });
-  }
-  
   // 初始化时间显示
   updateTime();
   // 每秒更新时间
@@ -989,31 +1135,44 @@ async function loadUserInfo() {
  * 加载开始菜单应用列表
  */
 async function loadStartMenuApps() {
+  if (isStartMenuLoading) return;
+  isStartMenuLoading = true;
+  
   try {
     const userId = await getCurrentUserId();
     const desktopData = await window.electronAPI.config.getUserDesktop(userId);
     const apps = desktopData ? desktopData.desktopapp : [];
     const appList = document.getElementById('start-menu-app-list');
     
-    if (!appList) return;
-    
-    // 清空现有内容
-    appList.innerHTML = '';
-    
-    if (!apps || apps.length === 0) {
+    if (!appList) {
+      isStartMenuLoading = false;
       return;
     }
     
-    // 创建应用项
+    appList.innerHTML = '';
+    
+    if (!apps || apps.length === 0) {
+      isStartMenuLoading = false;
+      return;
+    }
+    
+    // 去重：按 app.start 去重
+    const uniqueApps = [];
+    const seen = new Set();
     for (const app of apps) {
+      if (!seen.has(app.start)) {
+        seen.add(app.start);
+        uniqueApps.push(app);
+      }
+    }
+    
+    for (const app of uniqueApps) {
       const appItem = document.createElement('div');
       appItem.className = 'start-menu-app-item';
       appItem.dataset.appName = app.start;
       
-      // 获取应用图标（优先使用 desktop.json 中的图标，否则从 .app 文件获取）
       let iconPath = app.icon;
       
-      // 如果 desktop.json 中的图标为空或无效，尝试从 .app 文件获取
       if (!iconPath || iconPath.trim() === '' || !isValidImagePath(iconPath)) {
         const appInfo = await getAppInfo(app.start);
         if (appInfo && appInfo.icon && isValidImagePath(appInfo.icon)) {
@@ -1021,11 +1180,9 @@ async function loadStartMenuApps() {
         }
       }
       
-      // 图标
       const iconElement = document.createElement('img');
       iconElement.className = 'start-menu-app-icon';
       
-      // 使用最终确定的图标路径，无效则使用默认图标
       const finalIconPath = isValidImagePath(iconPath) ? iconPath : '../difproico.png';
       iconElement.src = finalIconPath;
       
@@ -1033,7 +1190,6 @@ async function loadStartMenuApps() {
         iconElement.src = '../difproico.png';
       };
       
-      // 名称
       const nameElement = document.createElement('span');
       nameElement.className = 'start-menu-app-name';
       nameElement.textContent = app.name;
@@ -1042,7 +1198,6 @@ async function loadStartMenuApps() {
       appItem.appendChild(nameElement);
       appList.appendChild(appItem);
       
-      // 点击启动应用
       appItem.addEventListener('click', async () => {
         console.log('Launching app from start menu:', app.start);
         closeStartMenu();
@@ -1054,6 +1209,8 @@ async function loadStartMenuApps() {
     }
   } catch (error) {
     console.error('Failed to load start menu apps:', error);
+  } finally {
+    isStartMenuLoading = false;
   }
 }
 
@@ -1164,17 +1321,19 @@ function bindUserMenu() {
       closeUserSubmenu();
       closeStartMenu();
       showConfirmModal('确认锁定吗？', () => {
+        clipboard = null;
         window.electronAPI.window.openDashboard();
       });
     });
   }
-  
+
   const logoutBtn = document.getElementById('start-menu-logout');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
       closeUserSubmenu();
       closeStartMenu();
       showConfirmModal('确认注销吗？', () => {
+        clipboard = null;
         window.electronAPI.window.openDashboard();
       });
     });

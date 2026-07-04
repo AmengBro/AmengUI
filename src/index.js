@@ -104,7 +104,7 @@ const createWindow = () => {
     fullscreen: false,      // 不使用全屏模式（避免影响 Z 顺序）
     maximizable: false,     // 禁止最大化
     minimizable: false,     // 禁止最小化
-    skipTaskbar: true,      // 不在任务栏显示
+    skipTaskbar: false,      // 不在任务栏显示
     resizable: false,       // 禁止调整大小
     icon: iconPath,         // 应用图标
     webPreferences: {
@@ -407,7 +407,7 @@ ipcMain.handle('window:openDashboard', async () => {
     frame: false,
     fullscreen: false,
     alwaysOnTop: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     resizable: false,
     icon: iconPath,         // 应用图标
     webPreferences: {
@@ -438,6 +438,366 @@ ipcMain.handle('window:openDashboard', async () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();
   }
+});
+
+// 设置窗口
+ipcMain.handle('settings:show', async (event, settingsData) => {
+  console.log('[Settings IPC] settings:show received, settingsData:', JSON.stringify(settingsData));
+  
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const iconPath = path.join(__dirname, '../favicon.ico');
+  
+  const settingsWindow = new BrowserWindow({
+    width: 360,
+    height: 520,
+    x: Math.floor((width - 360) / 2),
+    y: Math.floor((height - 520) / 2),
+    frame: false,
+    fullscreen: false,
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    resizable: false,
+    icon: iconPath,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+  
+  const theme = settingsData.theme || 'dark';
+  const accentColor = settingsData.accentColor || '#0078D4';
+  const isTaskbarFloating = settingsData.isTaskbarFloating !== undefined ? settingsData.isTaskbarFloating : true;
+  
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>临时设置</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          background: ${theme === 'dark' ? 'rgba(32, 32, 32, 0.95)' : 'rgba(255, 255, 255, 0.98)'};
+          color: ${theme === 'dark' ? '#fff' : '#333'};
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          overflow: hidden;
+          backdrop-filter: blur(15px);
+          -webkit-backdrop-filter: blur(15px);
+        }
+        .title-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
+          border-bottom: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+          cursor: move;
+          -webkit-app-region: drag;
+        }
+        .title-text {
+          font-size: 14px;
+          font-weight: 500;
+        }
+        .close-btn {
+          width: 28px;
+          height: 28px;
+          border: none;
+          background: transparent;
+          color: ${theme === 'dark' ? '#999' : '#666'};
+          font-size: 20px;
+          cursor: pointer;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.15s, color 0.15s;
+          -webkit-app-region: no-drag;
+        }
+        .close-btn:hover {
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'};
+          color: ${theme === 'dark' ? '#fff' : '#333'};
+        }
+        .content {
+          padding: 16px;
+          max-height: calc(100vh - 48px);
+          overflow-y: auto;
+        }
+        .content::-webkit-scrollbar { width: 6px; }
+        .content::-webkit-scrollbar-track { background: transparent; }
+        .content::-webkit-scrollbar-thumb { 
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'}; 
+          border-radius: 3px; 
+        }
+        .section {
+          margin-bottom: 20px;
+        }
+        .section-title {
+          font-size: 12px;
+          font-weight: 600;
+          color: ${theme === 'dark' ? '#999' : '#666'};
+          margin-bottom: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .setting-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 0;
+          border-bottom: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'};
+        }
+        .setting-label {
+          font-size: 13px;
+        }
+        .toggle-switch {
+          width: 44px;
+          height: 24px;
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
+          border-radius: 12px;
+          position: relative;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .toggle-switch.active {
+          background: ${accentColor};
+        }
+        .toggle-switch::after {
+          content: '';
+          position: absolute;
+          width: 20px;
+          height: 20px;
+          background: #fff;
+          border-radius: 50%;
+          top: 2px;
+          left: 2px;
+          transition: left 0.2s;
+        }
+        .toggle-switch.active::after {
+          left: 22px;
+        }
+        .color-picker-wrapper {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        #accent-color-input {
+          width: 40px;
+          height: 32px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          background: transparent;
+          padding: 2px;
+        }
+        #accent-color-input::-webkit-color-swatch-wrapper {
+          padding: 0;
+        }
+        #accent-color-input::-webkit-color-swatch {
+          border-radius: 6px;
+          border: 2px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
+        }
+        .color-preview {
+          width: 24px;
+          height: 24px;
+          border-radius: 4px;
+          border: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
+        }
+        .theme-options {
+          display: flex;
+          gap: 8px;
+        }
+        .theme-btn {
+          flex: 1;
+          padding: 10px;
+          border: 2px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+          border-radius: 8px;
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
+          color: ${theme === 'dark' ? '#fff' : '#333'};
+          cursor: pointer;
+          font-size: 13px;
+          transition: all 0.2s;
+        }
+        .theme-btn:hover {
+          border-color: ${accentColor};
+        }
+        .theme-btn.active {
+          border-color: ${accentColor};
+          background: ${accentColor}20;
+        }
+        .taskbar-options {
+          display: flex;
+          gap: 8px;
+        }
+        .taskbar-btn {
+          flex: 1;
+          padding: 10px;
+          border: 2px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+          border-radius: 8px;
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
+          color: ${theme === 'dark' ? '#fff' : '#333'};
+          cursor: pointer;
+          font-size: 13px;
+          transition: all 0.2s;
+        }
+        .taskbar-btn:hover {
+          border-color: ${accentColor};
+        }
+        .taskbar-btn.active {
+          border-color: ${accentColor};
+          background: ${accentColor}20;
+        }
+        .bg-preview {
+          width: 100%;
+          height: 100px;
+          border-radius: 8px;
+          border: 2px dashed ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 12px;
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          position: relative;
+          overflow: hidden;
+        }
+        .bg-preview::before {
+          content: '无背景';
+          color: ${theme === 'dark' ? '#666' : '#999'};
+          font-size: 13px;
+        }
+        .bg-preview.has-bg::before {
+          display: none;
+        }
+        .bg-actions {
+          display: flex;
+          gap: 8px;
+        }
+        .bg-btn {
+          flex: 1;
+          padding: 8px 12px;
+          border: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
+          border-radius: 6px;
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
+          color: ${theme === 'dark' ? '#fff' : '#333'};
+          cursor: pointer;
+          font-size: 12px;
+          transition: all 0.2s;
+        }
+        .bg-btn:hover {
+          background: ${accentColor}20;
+          border-color: ${accentColor};
+        }
+        #bg-file-input {
+          display: none;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="title-bar">
+        <span class="title-text">临时设置</span>
+        <button class="close-btn" onclick="window.close()">&times;</button>
+      </div>
+      <div class="content">
+        <div class="section">
+          <div class="section-title">主题</div>
+          <div class="theme-options">
+            <button class="theme-btn ${theme === 'dark' ? 'active' : ''}" onclick="changeTheme('dark')">暗色</button>
+            <button class="theme-btn ${theme === 'bright' ? 'active' : ''}" onclick="changeTheme('bright')">亮色</button>
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">主题色</div>
+          <div class="setting-item">
+            <span class="setting-label">颜色选择</span>
+            <div class="color-picker-wrapper">
+              <div class="color-preview" style="background: ${accentColor}"></div>
+              <input type="color" id="accent-color-input" value="${accentColor}" onchange="changeAccentColor(this.value)">
+            </div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">任务栏</div>
+          <div class="taskbar-options">
+            <button class="taskbar-btn ${isTaskbarFloating ? 'active' : ''}" onclick="changeTaskbarMode(true)">浮动</button>
+            <button class="taskbar-btn ${!isTaskbarFloating ? 'active' : ''}" onclick="changeTaskbarMode(false)">停靠</button>
+          </div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">桌面背景</div>
+          <div class="bg-preview ${settingsData.desktopBackground ? 'has-bg' : ''}" id="bg-preview" ${settingsData.desktopBackground ? `style="background-image: url('${settingsData.desktopBackground}')"` : ''}></div>
+          <div class="bg-actions">
+            <button class="bg-btn" onclick="document.getElementById('bg-file-input').click()">选择图片</button>
+            <button class="bg-btn" onclick="clearBackground()">清除背景</button>
+          </div>
+          <input type="file" id="bg-file-input" accept="image/*" onchange="selectBackground(event)">
+        </div>
+      </div>
+      
+      <script>
+        const { ipcRenderer } = require('electron');
+        
+        function changeTheme(newTheme) {
+          ipcRenderer.send('settings:change', { type: 'theme', value: newTheme });
+        }
+        
+        function changeAccentColor(newColor) {
+          ipcRenderer.send('settings:change', { type: 'accentColor', value: newColor });
+          document.querySelector('.color-preview').style.background = newColor;
+        }
+        
+        function changeTaskbarMode(isFloating) {
+          ipcRenderer.send('settings:change', { type: 'taskbarMode', value: isFloating });
+        }
+        
+        function selectBackground(event) {
+          const file = event.target.files[0];
+          if (file) {
+            const bgUrl = 'file:///' + file.path.replaceAll('\\', '/');
+            const preview = document.getElementById('bg-preview');
+            preview.style.backgroundImage = 'url("' + bgUrl + '")';
+            preview.classList.add('has-bg');
+            ipcRenderer.send('settings:change', { type: 'desktopBackground', value: bgUrl });
+          }
+        }
+        
+        function clearBackground() {
+          const preview = document.getElementById('bg-preview');
+          preview.style.backgroundImage = '';
+          preview.classList.remove('has-bg');
+          ipcRenderer.send('settings:change', { type: 'desktopBackground', value: null });
+        }
+        
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') window.close();
+        });
+      </script>
+    </body>
+    </html>
+  `;
+  
+  settingsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+  
+  settingsWindow.on('closed', () => {
+    console.log('[Settings] Settings window closed');
+  });
+});
+
+// 设置变更事件
+ipcMain.on('settings:change', (event, change) => {
+  console.log('[Settings IPC] settings:change received:', change);
+  // 发送到 dashboard 窗口
+  const windows = BrowserWindow.getAllWindows();
+  windows.forEach(win => {
+    if (win.webContents.getURL().includes('dashboard')) {
+      win.webContents.send('settings:change', change);
+    }
+  });
 });
 
 // 属性窗口
@@ -639,20 +999,79 @@ ipcMain.handle('app:launch', async (_, appName) => {
 // 获取应用信息
 ipcMain.handle('app:getInfo', async (_, appName) => {
   try {
-    // 构建 .app 文件路径（rootdir 在 AmengUI 目录内）
     const appPath = path.join(__dirname, '..', 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
     console.log('Getting app info:', appPath);
     
-    // 读取 .app 文件内容
-    const appDataRaw = await fs.readFile(appPath, 'utf-8');
-    const appData = JSON.parse(appDataRaw);
+    let appData;
+    try {
+      const appDataRaw = await fs.readFile(appPath, 'utf-8');
+      appData = JSON.parse(appDataRaw);
+    } catch (readError) {
+      console.warn('.app file not found, using built-in app mapping:', readError.message);
+      const appMappings = {
+        'com.browser': {
+          name: '浏览器',
+          description: '默认浏览器（Edge）',
+          exePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+          icon: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+        },
+        'com.terminal': {
+          name: '终端',
+          description: 'Windows 命令行工具',
+          exePath: 'C:\\Windows\\System32\\cmd.exe',
+          icon: 'C:\\Windows\\System32\\cmd.exe'
+        },
+        'com.explorer': {
+          name: '资源管理器',
+          description: '文件资源管理器',
+          exePath: 'C:\\Windows\\explorer.exe',
+          icon: 'C:\\Windows\\explorer.exe'
+        },
+        'com.notepad': {
+          name: '记事本',
+          description: '文本编辑器',
+          exePath: 'C:\\Windows\\notepad.exe',
+          icon: 'C:\\Windows\\notepad.exe'
+        },
+        'com.calculator': {
+          name: '计算器',
+          description: 'Windows 计算器',
+          exePath: 'C:\\Windows\\System32\\calc.exe',
+          icon: 'C:\\Windows\\System32\\calc.exe'
+        }
+      };
+      appData = appMappings[appName];
+      if (!appData) {
+        return { 
+          success: false, 
+          error: 'App not found in mapping' 
+        };
+      }
+    }
+    
+    let iconPath = appData.icon;
+    
+    if (iconPath && !iconPath.toLowerCase().match(/\.(png|jpg|jpeg|ico|gif)$/)) {
+      try {
+        const nativeImage = require('electron').nativeImage;
+        const icon = nativeImage.createFromPath(iconPath);
+        if (!icon.isEmpty()) {
+          const tempDir = require('os').tmpdir();
+          const tempIconPath = path.join(tempDir, `${appName}-icon.png`);
+          await fs.writeFile(tempIconPath, icon.toPNG());
+          iconPath = tempIconPath;
+        }
+      } catch (iconError) {
+        console.warn('Failed to extract icon from exe:', iconError.message);
+      }
+    }
     
     return {
       success: true,
       name: appData.name,
       description: appData.description,
       exePath: appData.exePath,
-      icon: appData.icon
+      icon: iconPath
     };
     
   } catch (error) {

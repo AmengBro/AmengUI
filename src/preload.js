@@ -6,6 +6,9 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// 设置变更回调（preload 作用域）
+let settingsChangeCallback = null;
+
 // 暴露安全的 API 接口给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {
   // 配置管理相关 API
@@ -92,6 +95,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   properties: {
     /** 显示应用属性窗口 */
     show: (appData) => ipcRenderer.invoke('properties:show', appData)
+  },
+  
+  // 设置窗口 API
+  settings: {
+    /** 显示临时设置窗口 */
+    show: (settingsData) => ipcRenderer.invoke('settings:show', settingsData),
+    /** 注册设置变更回调 */
+    onChange: (callback) => { settingsChangeCallback = callback; }
+  }
+});
+
+// 监听设置变更事件
+ipcRenderer.on('settings:change', (event, change) => {
+  if (settingsChangeCallback) {
+    settingsChangeCallback(change);
   }
 });
 
