@@ -42,19 +42,57 @@ async function forceWindowToBottom(hwnd) {
   console.log(`hwnd (decimal): ${hwnd}`);
   console.log(`hwnd (hex): 0x${hwnd.toString(16)}`);
   
-  const scriptPath = path.join(__dirname, '../scripts/setbottom.ps1');
+  const os = require('os');
+  const scriptContent = `param(
+    [Parameter(Mandatory=$true)]
+    [int]$hwnd
+)
+
+Write-Host "Attempting to set window $hwnd to bottom..."
+
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class User32 {
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+}
+"@
+
+$hwndPtr = [IntPtr]$hwnd
+$HWND_BOTTOM = [IntPtr]1
+$SWP_NOSIZE = 0x0001
+$SWP_NOMOVE = 0x0002
+$SWP_NOACTIVATE = 0x0010
+$SWP_SHOWWINDOW = 0x0040
+
+$result = [User32]::SetWindowPos($hwndPtr, $HWND_BOTTOM, 0, 0, 0, 0, $SWP_NOSIZE -bor $SWP_NOMOVE -bor $SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)
+
+Write-Host "SetWindowPos result: $result"
+
+if ($result) {
+    Write-Host "Successfully set window to bottom"
+} else {
+    Write-Host "Failed to set window to bottom"
+    [System.Environment]::Exit(1)
+}`;
   
   try {
-    // 确保脚本目录存在
-    await fs.mkdir(path.dirname(scriptPath), { recursive: true });
+    const tempDir = os.tmpdir();
+    const scriptPath = path.join(tempDir, 'amengui_setbottom.ps1');
     
-    // 执行脚本（使用 -ExecutionPolicy Bypass，并传递窗口句柄参数）
+    await fs.writeFile(scriptPath, scriptContent, 'utf-8');
+    console.log('Created temp script:', scriptPath);
+    
     const command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -hwnd ${hwnd}`;
     console.log(`Executing command: ${command}`);
     
     const { stdout, stderr } = await execAsync(command);
     console.log('PowerShell stdout:', stdout);
     if (stderr) console.log('PowerShell stderr:', stderr);
+    
+    await fs.unlink(scriptPath);
+    console.log('Cleaned up temp script');
     
     console.log(`=== forceWindowToBottom end (success) ===`);
     
@@ -1096,8 +1134,8 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
         },
         'com.terminal': {
           name: '终端',
-          description: 'Windows 命令行工具',
-          exePath: 'C:\\Windows\\System32\\cmd.exe',
+          description: 'Ameng Shell 终端',
+          exePath: path.join(APP_ROOT, 'src', 'amsys', 'amsys.exe'),
           icon: 'C:\\Windows\\System32\\cmd.exe'
         },
         'com.explorer': {
