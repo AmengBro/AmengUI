@@ -9,6 +9,7 @@ const fs = require('fs').promises;
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const config = require('./config');
+const { getPathConverter } = require('./amsys/converter');
 
 const execAsync = promisify(exec);
 
@@ -79,7 +80,7 @@ if ($result) {
   
   try {
     const tempDir = os.tmpdir();
-    const scriptPath = path.join(tempDir, 'amengui_setbottom.ps1');
+    const scriptPath = path.join(tempDir, `amengui_setbottom_${hwnd}_${Date.now()}.ps1`);
     
     await fs.writeFile(scriptPath, scriptContent, 'utf-8');
     console.log('Created temp script:', scriptPath);
@@ -1076,26 +1077,42 @@ ipcMain.handle('window:setPosition', async (event, x, y) => {
  */
 ipcMain.handle('app:launch', async (_, appName) => {
   try {
-    const appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    let appPath;
+    
+    try {
+      const converter = await getPathConverter(APP_ROOT);
+      const result = await converter.toWindows('/usr/share/applications');
+      if (result.success && result.winPath) {
+        appPath = path.join(result.winPath, `${appName}.app`);
+        console.log('App path via converter:', appPath);
+      } else {
+        throw new Error('path conversion failed');
+      }
+    } catch (converterError) {
+      console.warn('Failed to get app path via converter, using fallback:', converterError.message);
+      appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    }
+    
     console.log('Attempting to launch app:', appPath);
     
-    // 读取 .app 文件内容
     const appDataRaw = await fs.readFile(appPath, 'utf-8');
     const appData = JSON.parse(appDataRaw);
     console.log('App config loaded:', appData);
     
-    // 检查 exePath 是否存在
     if (!appData.exePath) {
       throw new Error('No exePath specified in app config');
     }
     
-    // 启动应用
     console.log('Launching exe:', appData.exePath);
     
-    // 使用 spawn 启动应用（不阻塞）
+    const isTerminal = appData.exePath.toLowerCase().endsWith('cmd.exe') || 
+                       appData.exePath.toLowerCase().endsWith('powershell.exe') ||
+                       appData.exePath.toLowerCase().endsWith('amsys.exe');
+    
     const child = spawn(appData.exePath, [], {
       detached: true,
-      stdio: 'ignore'
+      stdio: isTerminal ? 'inherit' : 'ignore',
+      shell: isTerminal
     });
     
     child.unref();
@@ -1116,7 +1133,22 @@ ipcMain.handle('app:launch', async (_, appName) => {
 // 获取应用信息
 ipcMain.handle('app:getInfo', async (_, appName) => {
   try {
-    const appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    let appPath;
+    
+    try {
+      const converter = await getPathConverter(APP_ROOT);
+      const result = await converter.toWindows('/usr/share/applications');
+      if (result.success && result.winPath) {
+        appPath = path.join(result.winPath, `${appName}.app`);
+        console.log('App path via converter:', appPath);
+      } else {
+        throw new Error('path conversion failed');
+      }
+    } catch (converterError) {
+      console.warn('Failed to get app path via converter, using fallback:', converterError.message);
+      appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+    }
+    
     console.log('Getting app info:', appPath);
     
     let appData;
