@@ -168,6 +168,45 @@ body.theme-bright .start-btn:hover {
 .taskbar-time-container {
   position: relative;
   padding-right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-center-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.control-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.control-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-bright .control-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.control-icon-btn svg {
+  width: 18px;
+  height: 18px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+body.theme-bright .control-icon-btn svg {
+  color: rgba(0, 0, 0, 0.7);
 }
 
 /* 时间按钮 */

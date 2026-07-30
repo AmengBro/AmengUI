@@ -1029,6 +1029,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // 绑定日历事件
   bindCalendarEvents();
   
+  // 绑定控制中心图标事件
+  bindControlCenterEvents();
+  
   // 初始化开始菜单
   initStartMenu();
 });
@@ -1317,9 +1320,8 @@ function bindPowerButtons() {
     shellBtn.addEventListener('click', () => {
       closePowerSubmenu();
       closeStartMenu();
-      // 显示确认弹窗（模拟操作）
       showConfirmModal('确认进入Shell模式吗？', () => {
-        alert('你正在进入Shell模式');
+        window.electronAPI.power.shell();
       });
     });
   }
@@ -1390,5 +1392,43 @@ function closeUserSubmenu() {
   const userSubmenu = document.getElementById('user-submenu');
   if (userSubmenu && !userSubmenu.classList.contains('hidden')) {
     userSubmenu.classList.add('hidden');
+  }
+}
+
+/**
+ * 绑定控制中心图标事件
+ */
+function bindControlCenterEvents() {
+  const networkBtn = document.getElementById('btn-network-icon');
+  const volumeBtn = document.getElementById('btn-volume-icon');
+  const batteryBtn = document.getElementById('btn-battery-icon');
+  
+  const showControlCenter = async () => {
+    try {
+      await window.electronAPI.controlCenter.show();
+    } catch (e) {
+      console.error('Failed to show control center:', e);
+    }
+  };
+  
+  if (networkBtn) {
+    networkBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showControlCenter();
+    });
+  }
+  
+  if (volumeBtn) {
+    volumeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showControlCenter();
+    });
+  }
+  
+  if (batteryBtn) {
+    batteryBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showControlCenter();
+    });
   }
 }

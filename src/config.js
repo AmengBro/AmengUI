@@ -35,6 +35,8 @@ const CONFIG_DIR = path.join(APP_ROOT, 'config');
 const USERS_FILE = path.join(CONFIG_DIR, 'users.json');
 const SYSTEM_FILE = path.join(CONFIG_DIR, 'system.json');
 
+const PWSH_PATH = path.join(APP_ROOT, 'PowerShell', '7', 'pwsh.exe');
+
 // 默认用户列表
 const defaultUsers = [
   {
@@ -515,5 +517,6 @@ module.exports = {
   updateDesktopApp,
   removeDesktopApp,
   setDesktopBackground,
-  updateDesktopAppPosition
+  updateDesktopAppPosition,
+  PWSH_PATH
 };

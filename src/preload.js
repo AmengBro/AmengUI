@@ -61,7 +61,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 系统命令执行 API
   system: {
     /** 执行系统命令 */
-    exec: (command) => ipcRenderer.invoke('system:exec', command)
+    exec: (command) => ipcRenderer.invoke('system:exec', command),
+    /** 获取系统音量 */
+    getVolume: () => ipcRenderer.invoke('system:getVolume'),
+    /** 设置系统音量 */
+    setVolume: (volume) => ipcRenderer.invoke('system:setVolume', volume),
+    /** 获取屏幕亮度 */
+    getBrightness: () => ipcRenderer.invoke('system:getBrightness'),
+    /** 设置屏幕亮度 */
+    setBrightness: (brightness) => ipcRenderer.invoke('system:setBrightness', brightness),
+    /** 打开音量合成器 */
+    openVolumeMixer: () => ipcRenderer.invoke('system:openVolumeMixer'),
+    /** 切换网络状态 */
+    toggleNetwork: () => ipcRenderer.invoke('system:toggleNetwork'),
+    /** 切换蓝牙状态 */
+    toggleBluetooth: () => ipcRenderer.invoke('system:toggleBluetooth'),
+    /** 切换飞行模式 */
+    toggleFlightMode: () => ipcRenderer.invoke('system:toggleFlightMode'),
+    /** 切换夜间模式 */
+    toggleNightMode: () => ipcRenderer.invoke('system:toggleNightMode')
   },
   
   // 文件系统操作 API
@@ -132,6 +150,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     restart: () => ipcRenderer.send('auth:restart'),
     /** Shell模式 */
     shell: () => ipcRenderer.send('auth:shell')
+  },
+  
+  // 控制中心 API
+  controlCenter: {
+    /** 显示控制中心 */
+    show: () => ipcRenderer.invoke('control-center:show'),
+    /** 隐藏控制中心 */
+    hide: () => ipcRenderer.invoke('control-center:hide')
   }
 });
 

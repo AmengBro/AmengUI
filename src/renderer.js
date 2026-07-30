@@ -204,7 +204,7 @@ function handleRestart() {
 function handleShellMode() {
   document.getElementById('power-menu').classList.add('hidden');
   showModal('确定要进入Shell模式吗？', () => {
-    showModal('正在进入Shell模式...', () => {}, false);
+    window.electronAPI.power.shell();
   }, false);
 }
 

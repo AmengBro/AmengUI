@@ -26,6 +26,24 @@
     
     <!-- 时间显示 -->
     <div class="taskbar-time-container">
+      <!-- 控制中心图标 -->
+      <div class="control-center-icons">
+        <button class="control-icon-btn" id="btn-network-icon" title="网络">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 3C7.46 3 3.34 4.78.29 7.67c-.18.18-.29.43-.29.71 0 .28.11.53.29.71l10 10c.39.39 1.02.39 1.41 0l10-10c.18-.18.29-.43.29-.71 0-.28-.11-.53-.29-.71C20.66 4.78 16.54 3 12 3zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
+          </svg>
+        </button>
+        <button class="control-icon-btn" id="btn-volume-icon" title="音量">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+        </button>
+        <button class="control-icon-btn" id="btn-battery-icon" title="电池">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17 6H7c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H7V8h10v8zm3-12v14h1V4h-1z"/>
+          </svg>
+        </button>
+      </div>
       <button class="taskbar-time-btn" id="taskbar-time-btn">
         <div class="time-display" id="time-display"></div>
         <div class="date-display" id="date-display"></div>

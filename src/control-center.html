@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>控制中心</title>
+  <link rel="stylesheet" href="control-center.css">
+</head>
+<body>
+  <div id="control-center" class="control-center">
+    <div class="quick-settings">
+      <div class="settings-grid">
+        <button class="setting-btn" id="btn-network" data-toggle="network">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+            <path d="M12 3C7.46 3 3.34 4.78.29 7.67c-.18.18-.29.43-.29.71 0 .28.11.53.29.71l10 10c.39.39 1.02.39 1.41 0l10-10c.18-.18.29-.43.29-.71 0-.28-.11-.53-.29-.71C20.66 4.78 16.54 3 12 3zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
+          </svg>
+          <span class="setting-label">网络</span>
+          <span class="setting-value" id="network-value">TP-LINK_FE1D</span>
+        </button>
+
+        <button class="setting-btn" id="btn-bluetooth" data-toggle="bluetooth">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+            <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+          </svg>
+          <span class="setting-label">蓝牙</span>
+          <span class="setting-value" id="bluetooth-value">关</span>
+        </button>
+
+        <button class="setting-btn" id="btn-flight-mode" data-toggle="flight-mode">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+            <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+          </svg>
+          <span class="setting-label">飞行模式</span>
+          <span class="setting-value" id="flight-mode-value">关</span>
+        </button>
+      </div>
+
+      <div class="settings-grid">
+        <button class="setting-btn" id="btn-night-mode" data-toggle="night-mode">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+            <path d="M12 3a6 6 0 0 0-9 9c0 2.38 1.19 4.47 3 5.74V17a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v1.74c1.81-1.27 3-3.36 3-5.74a6 6 0 0 0-9-9z"/>
+          </svg>
+          <span class="setting-label">夜间模式</span>
+          <span class="setting-value" id="night-mode-value">关</span>
+        </button>
+      </div>
+
+      <div class="slider-section">
+        <div class="slider-item">
+          <div class="slider-header">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="slider-icon">
+              <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/>
+            </svg>
+            <span class="slider-label">亮度</span>
+          </div>
+          <div class="slider-container">
+            <input type="range" id="brightness-slider" min="0" max="100" value="50" class="slider">
+            <span class="slider-value" id="brightness-value">50%</span>
+          </div>
+        </div>
+
+        <div class="slider-item">
+          <div class="slider-header">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="slider-icon">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
+            <span class="slider-label">音量</span>
+            <button id="btn-volume-mixer" class="mixer-btn">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                <path d="M11 7h2v10h-2zm4-3v2h2V4h-2zm-8 3v2h2V7H7zm-3 3v8h2v-8H4z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="slider-container">
+            <input type="range" id="volume-slider" min="0" max="100" value="50" class="slider">
+            <span class="slider-value" id="volume-value">50%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="battery-section">
+        <svg viewBox="0 0 24 24" fill="currentColor" class="battery-icon">
+          <path d="M17 6H7c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H7V8h10v8zm3-12v14h1V4h-1z"/>
+        </svg>
+        <span class="battery-text">100%</span>
+      </div>
+    </div>
+  </div>
+  <script src="control-center.js"></script>
+</body>
+</html>

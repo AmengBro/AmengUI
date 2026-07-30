@@ -5,11 +5,14 @@
 
 const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('node:path');
+const os = require('os');
 const fs = require('fs').promises;
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const config = require('./config');
 const { getPathConverter } = require('./amsys/converter');
+
+const PWSH_PATH = config.PWSH_PATH;
 
 const execAsync = promisify(exec);
 
@@ -85,7 +88,16 @@ if ($result) {
     await fs.writeFile(scriptPath, scriptContent, 'utf-8');
     console.log('Created temp script:', scriptPath);
     
-    const command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -hwnd ${hwnd}`;
+    let powershellExe = 'powershell';
+    try {
+      await fs.access(PWSH_PATH);
+      powershellExe = `"${PWSH_PATH}"`;
+      console.log('Using built-in PowerShell 7:', PWSH_PATH);
+    } catch {
+      console.log('Built-in PowerShell 7 not found, using system powershell');
+    }
+    
+    const command = `${powershellExe} -ExecutionPolicy Bypass -File "${scriptPath}" -hwnd ${hwnd}`;
     console.log(`Executing command: ${command}`);
     
     const { stdout, stderr } = await execAsync(command);
@@ -144,6 +156,9 @@ if (require('electron-squirrel-startup')) {
 // 主窗口引用
 let mainWindow = null;
 let dashboardWindow = null;
+let controlCenterWindow = null;
+let amsysProcess = null;
+let isShellMode = false;
 
 /**
  * 创建应用主窗口
@@ -1301,6 +1316,362 @@ ipcMain.on('lockscreen:unlock', () => {
   if (lockWindow) {
     lockWindow.close();
     lockWindow = null;
+  }
+});
+
+function startAmsysProcess() {
+  const amsysPath = path.join(APP_ROOT, 'src', 'amsys', 'amsys.exe');
+  
+  amsysProcess = spawn(amsysPath, [], {
+    stdio: ['inherit', 'inherit', 'inherit'],
+    detached: true,
+    cwd: APP_ROOT
+  });
+  
+  amsysProcess.on('exit', (code) => {
+    console.log(`amsys process exited with code: ${code}`);
+    if (isShellMode) {
+      console.log('Restarting amsys in shell mode...');
+      startAmsysProcess();
+    }
+  });
+  
+  amsysProcess.on('error', (err) => {
+    console.error('amsys process error:', err);
+    if (isShellMode) {
+      setTimeout(() => {
+        startAmsysProcess();
+      }, 1000);
+    }
+  });
+}
+
+ipcMain.on('auth:shell', () => {
+  console.log('=== Entering Shell Mode ===');
+  
+  isShellMode = true;
+  
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.hide();
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+  
+  startAmsysProcess();
+});
+
+ipcMain.on('auth:exit-shell', () => {
+  exitShellMode();
+  
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+  } else {
+    createWindow();
+  }
+});
+
+ipcMain.on('auth:shutdown', () => {
+  console.log('=== System Shutdown ===');
+  spawn('shutdown', ['/s', '/t', '0'], { detached: true });
+});
+
+ipcMain.on('auth:restart', () => {
+  console.log('=== System Restart ===');
+  spawn('shutdown', ['/r', '/t', '0'], { detached: true });
+});
+
+function exitShellMode() {
+  if (isShellMode && amsysProcess) {
+    console.log('=== Exiting Shell Mode ===');
+    isShellMode = false;
+    try {
+      process.kill(-amsysProcess.pid);
+    } catch (e) {
+      console.error('Failed to kill amsys process:', e);
+    }
+    amsysProcess = null;
+  }
+}
+
+ipcMain.handle('control-center:show', async () => {
+  if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    controlCenterWindow.show();
+    return;
+  }
+  
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width } = primaryDisplay.workAreaSize;
+  
+  controlCenterWindow = new BrowserWindow({
+    width: 320,
+    height: 420,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  
+  controlCenterWindow.setPosition(width - 336, 40);
+  controlCenterWindow.loadFile(path.join(__dirname, 'control-center.html'));
+  
+  controlCenterWindow.on('closed', () => {
+    controlCenterWindow = null;
+  });
+  
+  controlCenterWindow.on('blur', () => {
+    controlCenterWindow.hide();
+  });
+});
+
+ipcMain.handle('control-center:hide', async () => {
+  if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    controlCenterWindow.hide();
+  }
+});
+
+async function getPwshCommand() {
+  try {
+    await fs.access(PWSH_PATH);
+    return `"${PWSH_PATH}"`;
+  } catch {
+    return 'powershell';
+  }
+}
+
+ipcMain.handle('system:getVolume', async () => {
+  try {
+    const pwsh = await getPwshCommand();
+    const { stdout } = await execAsync(`${pwsh} -Command "[audio]::Volume"`);
+    const volume = parseInt(stdout.trim());
+    return isNaN(volume) ? 50 : volume;
+  } catch (e) {
+    try {
+      const pwsh = await getPwshCommand();
+      const { stdout } = await execAsync(`${pwsh} -Command "(Get-WmiObject -Namespace root\\CIMV2 -Class Win32_ComputerSystem).Volume"`);
+      const volume = parseInt(stdout.trim());
+      return isNaN(volume) ? 50 : volume;
+    } catch (e2) {
+      console.error('Failed to get volume:', e2);
+      return 50;
+    }
+  }
+});
+
+ipcMain.handle('system:setVolume', async (_, volume) => {
+  try {
+    const pwsh = await getPwshCommand();
+    const scriptPath = path.join(os.tmpdir(), `amengui_setvolume_${Date.now()}.ps1`);
+    const scriptContent = `
+\$volumePercent = ${volume}
+Add-Type -AssemblyName System.Core
+\$audio = [System.Windows.Media.MediaPlayer]::new()
+\$audio.Close()
+\$vol = [System.Windows.Media.AudioVolume]::new()
+\$vol.Volume = \$volumePercent / 100
+[System.Windows.Media.AudioVolume]::SetMasterVolume(\$volumePercent / 100)
+    `.trim();
+    
+    await fs.writeFile(scriptPath, scriptContent);
+    
+    try {
+      await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
+      return { success: true };
+    } finally {
+      fs.unlink(scriptPath, () => {});
+    }
+  } catch (e) {
+    try {
+      const pwsh = await getPwshCommand();
+      const scriptPath = path.join(os.tmpdir(), `amengui_setvolume2_${Date.now()}.ps1`);
+      const scriptContent = `
+\$volume = ${volume}
+\$obj = New-Object -ComObject WScript.Shell
+\$obj.SendKeys([char]174)
+for(\$i=0;\$i -lt 50;\$i++){\$obj.SendKeys([char]174)}
+for(\$i=0;\$i -lt \$volume;\$i++){\$obj.SendKeys([char]175)}
+      `.trim();
+      
+      await fs.writeFile(scriptPath, scriptContent);
+      
+      try {
+        await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
+        return { success: true };
+      } finally {
+        fs.unlink(scriptPath, () => {});
+      }
+    } catch (e2) {
+      console.error('Failed to set volume:', e2);
+      return { success: false, error: e2.message };
+    }
+  }
+});
+
+ipcMain.handle('system:getBrightness', async () => {
+  try {
+    const pwsh = await getPwshCommand();
+    const { stdout } = await execAsync(`${pwsh} -Command "(Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightness).CurrentBrightness"`);
+    const brightness = parseInt(stdout.trim());
+    return isNaN(brightness) ? 50 : brightness;
+  } catch (e) {
+    console.error('Failed to get brightness:', e);
+    return 50;
+  }
+});
+
+ipcMain.handle('system:setBrightness', async (_, brightness) => {
+  try {
+    const pwsh = await getPwshCommand();
+    await execAsync(`${pwsh} -Command "(Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, ${brightness})"`);
+    return { success: true };
+  } catch (e) {
+    console.error('Failed to set brightness:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:openVolumeMixer', async () => {
+  try {
+    spawn('sndvol.exe', [], { detached: true });
+    return { success: true };
+  } catch (e) {
+    console.error('Failed to open volume mixer:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:toggleNetwork', async () => {
+  try {
+    const pwsh = await getPwshCommand();
+    const scriptPath = path.join(os.tmpdir(), `amengui_togglenetwork_${Date.now()}.ps1`);
+    const scriptContent = `
+\$adapters = Get-NetAdapter | Where-Object { \$_.Status -eq 'Up' }
+if (\$adapters) {
+  \$adapterName = \$adapters[0].Name
+  netsh interface set interface name="\$adapterName" admin=disabled
+  Write-Output "disabled"
+} else {
+  \$disabled = Get-NetAdapter | Where-Object { \$_.Status -eq 'Disconnected' }
+  if (\$disabled) {
+    \$adapterName = \$disabled[0].Name
+    netsh interface set interface name="\$adapterName" admin=enabled
+    Write-Output "enabled"
+  } else {
+    Write-Output "not_found"
+  }
+}
+    `.trim();
+    
+    await fs.writeFile(scriptPath, scriptContent);
+    
+    try {
+      const { stdout } = await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
+      const result = stdout.trim();
+      if (result === 'disabled') {
+        return { success: true, enabled: false };
+      } else if (result === 'enabled') {
+        return { success: true, enabled: true };
+      } else {
+        return { success: false, error: 'No network adapter found' };
+      }
+    } finally {
+      fs.unlink(scriptPath, () => {});
+    }
+  } catch (e) {
+    console.error('Failed to toggle network:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:toggleBluetooth', async () => {
+  try {
+    const pwsh = await getPwshCommand();
+    const scriptPath = path.join(os.tmpdir(), `amengui_togglebluetooth_${Date.now()}.ps1`);
+    const scriptContent = `
+\$status = (Get-Service bthserv).Status
+if (\$status -eq 'Running') {
+  Stop-Service bthserv -Force
+  Write-Output "disabled"
+} else {
+  Start-Service bthserv
+  Write-Output "enabled"
+}
+    `.trim();
+    
+    await fs.writeFile(scriptPath, scriptContent);
+    
+    try {
+      const { stdout } = await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
+      const result = stdout.trim();
+      return { success: true, enabled: result === 'enabled' };
+    } finally {
+      fs.unlink(scriptPath, () => {});
+    }
+  } catch (e) {
+    console.error('Failed to toggle bluetooth:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:toggleFlightMode', async () => {
+  try {
+    const pwsh = await getPwshCommand();
+    const scriptPath = path.join(os.tmpdir(), `amengui_flightmode_${Date.now()}.ps1`);
+    const scriptContent = `
+\$key = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\RadioManagement\\SystemRadioState'
+\$val = Get-ItemProperty -Path \$key -Name SystemRadioState
+if (\$val.SystemRadioState -eq 1) {
+  Set-ItemProperty -Path \$key -Name SystemRadioState -Value 0
+} else {
+  Set-ItemProperty -Path \$key -Name SystemRadioState -Value 1
+}
+(Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\RadioManagement\\SystemRadioState').SystemRadioState
+    `.trim();
+    
+    await fs.writeFile(scriptPath, scriptContent);
+    
+    try {
+      const { stdout } = await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
+      const enabled = stdout.trim() === '1';
+      return { success: true, enabled };
+    } finally {
+      fs.unlink(scriptPath, () => {});
+    }
+  } catch (e) {
+    console.error('Failed to toggle flight mode:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:toggleNightMode', async () => {
+  try {
+    const pwsh = await getPwshCommand();
+    const scriptPath = path.join(os.tmpdir(), `amengui_nightmode_${Date.now()}.ps1`);
+    const scriptContent = `
+\$path = 'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\Cache\\DefaultAccount\\\$\\$windows.data.bluelightreduction.bluelightreductionstate\\Current'
+\$val = Get-ItemProperty -Path \$path
+if (\$val.Data -match '01') {
+  Set-ItemProperty -Path \$path -Name Data -Value ([byte[]]@(0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00))
+} else {
+  Set-ItemProperty -Path \$path -Name Data -Value ([byte[]]@(0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00))
+}
+    `.trim();
+    
+    await fs.writeFile(scriptPath, scriptContent);
+    
+    try {
+      await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
+      return { success: true, enabled: true };
+    } finally {
+      fs.unlink(scriptPath, () => {});
+    }
+  } catch (e) {
+    console.error('Failed to toggle night mode:', e);
+    return { success: false, error: e.message };
   }
 });
 
