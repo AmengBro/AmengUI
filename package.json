@@ -2,7 +2,7 @@
   "name": "amengui",
   "productName": "amengui",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "AmengUI a system ",
   "main": "src/index.js",
   "private": true,
   "scripts": {

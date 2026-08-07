@@ -10,8 +10,8 @@
     },
     {
       "id": 2,
-      "x": 298,
-      "y": 159,
+      "x": 296,
+      "y": 156,
       "name": "资源管理器",
       "start": "com.explorer",
       "icon": ""
@@ -26,35 +26,43 @@
     },
     {
       "id": 1783124938824,
-      "x": 429,
-      "y": 503,
+      "x": 425,
+      "y": 497,
       "name": "终端",
       "start": "com.terminal",
       "icon": "C:\\Windows\\System32\\cmd.exe"
     },
     {
       "id": 1783124944403,
-      "x": 300,
-      "y": 394,
+      "x": 354,
+      "y": 339,
       "name": "资源管理器",
       "start": "com.explorer",
       "icon": null
     },
     {
       "id": 1783124955109,
-      "x": 516,
-      "y": 337,
+      "x": 514,
+      "y": 334,
       "name": "浏览器",
       "start": "com.browser",
       "icon": null
     },
     {
       "id": 1783125094914,
-      "x": 580,
-      "y": 636,
+      "x": 578,
+      "y": 633,
       "name": "终端",
       "start": "com.terminal",
       "icon": "C:\\Windows\\System32\\cmd.exe"
+    },
+    {
+      "id": 1783124944491,
+      "x": 228,
+      "y": 652,
+      "name": "WPS office",
+      "start": "com.wps",
+      "icon": null
     },
     {
       "id": 1783867448256,
@@ -63,6 +71,22 @@
       "name": "终端",
       "start": "com.terminal",
       "icon": "C:\\Windows\\System32\\cmd.exe"
+    },
+    {
+      "id": 1786084548717,
+      "x": 671,
+      "y": 69,
+      "name": "软件包管理器",
+      "start": "com.pacman",
+      "icon": "D:\\Codewhale\\workspace\\amsys\\root\\bin\\com.pacman.app\\pacman.exe"
+    },
+    {
+      "id": 1786084582447,
+      "x": 834,
+      "y": 240,
+      "name": "浏览器",
+      "start": "com.browser",
+      "icon": null
     }
   ],
   "desktopbg": null

@@ -15,6 +15,18 @@ const { getPathConverter } = require('./amsys/converter');
 const PWSH_PATH = config.PWSH_PATH;
 
 const execAsync = promisify(exec);
+const IPC_TIMEOUT = 15000;
+
+function getScriptsDir() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'scripts');
+  }
+  return path.join(__dirname, 'scripts');
+}
+
+const SCRIPTS_DIR = getScriptsDir();
+const AUDIO_SCRIPT = path.join(SCRIPTS_DIR, 'audio.ps1');
+const SYS_SCRIPT = path.join(SCRIPTS_DIR, 'sys.ps1');
 
 function getAppRoot() {
   const isPackaged = app?.isPackaged || false;
@@ -158,6 +170,7 @@ let mainWindow = null;
 let dashboardWindow = null;
 let controlCenterWindow = null;
 let amsysProcess = null;
+let amsysShellPid = null;
 let isShellMode = false;
 
 /**
@@ -283,6 +296,8 @@ app.whenReady().then(async () => {
   // 初始化配置：迁移旧数据并确保用户目录存在
   await initConfig();
   createWindow();
+  // 后台预热：启动音频/系统常驻服务并预取能力，避免用户打开控制中心时冷启动等待
+  prewarmSystemServices();
 
   // macOS 特性：点击 dock 图标时重新创建窗口
   app.on('activate', () => {
@@ -334,6 +349,16 @@ async function initConfig() {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
+  }
+});
+
+// 退出前关闭常驻服务进程
+app.on('before-quit', () => {
+  if (audioServer) {
+    audioServer.kill();
+  }
+  if (sysServer) {
+    sysServer.kill();
   }
 });
 
@@ -934,6 +959,53 @@ ipcMain.on('settings:change', (event, change) => {
   });
 });
 
+// 包管理器窗口（仅 UI 外壳，安装/卸载逻辑后续接入）
+let pkgManagerWindow = null;
+
+ipcMain.handle('pkgmanager:show', async (event, options = {}) => {
+  if (pkgManagerWindow && !pkgManagerWindow.isDestroyed()) {
+    pkgManagerWindow.focus();
+    return { success: true };
+  }
+
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const WIN_W = 420;
+  const WIN_H = 560;
+  const theme = options.theme || 'dark';
+  const accentColor = options.accentColor || '#0078D4';
+  const iconPath = path.join(__dirname, '../favicon.ico');
+
+  pkgManagerWindow = new BrowserWindow({
+    width: WIN_W,
+    height: WIN_H,
+    x: Math.floor((width - WIN_W) / 2),
+    y: Math.floor((height - WIN_H) / 2),
+    frame: false,
+    fullscreen: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: false,
+    maximizable: false,
+    icon: iconPath,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  pkgManagerWindow.loadFile(path.join(__dirname, 'package-manager.html'));
+
+  pkgManagerWindow.webContents.on('did-finish-load', () => {
+    if (!pkgManagerWindow || pkgManagerWindow.isDestroyed()) return;
+    pkgManagerWindow.webContents.send('pkgmanager:theme', { theme, accentColor });
+  });
+
+  pkgManagerWindow.on('closed', () => {
+    pkgManagerWindow = null;
+  });
+
+  return { success: true };
+});
+
 // 属性窗口
 ipcMain.handle('properties:show', async (event, appData) => {
   console.log('[Properties IPC] properties:show received, appData:', JSON.stringify(appData));
@@ -1087,6 +1159,48 @@ ipcMain.handle('window:setPosition', async (event, x, y) => {
 // ==================== 应用启动功能 ====================
 
 /**
+ * 将单个 Unix 风格路径转换为 Windows 路径
+ * Windows 路径（C:\、C:/、相对路径、UNC）原样返回
+ */
+async function convertAppPath(value) {
+  if (typeof value !== 'string' || value.trim() === '') return value;
+  const p = value.trim();
+  if (!p.startsWith('/')) return value;  // 已是 Windows 路径或相对路径
+  if (p.startsWith('//')) return value;  // UNC 路径 \\server\share
+  try {
+    const converter = await getPathConverter(APP_ROOT);
+    const result = await converter.toWindows(p);
+    if (result.success && result.winPath) {
+      return result.winPath;
+    }
+  } catch (e) {
+    console.warn('Failed to convert unix path:', p, e.message);
+  }
+  return value;
+}
+
+/**
+ * 转换 .app 配置中的 Unix 风格路径字段（exePath / icon / cwd / args）
+ */
+async function convertAppDataPaths(appData) {
+  if (!appData || typeof appData !== 'object') return appData;
+  const converted = { ...appData };
+  converted.exePath = await convertAppPath(appData.exePath);
+  if (appData.icon) converted.icon = await convertAppPath(appData.icon);
+  if (appData.cwd) converted.cwd = await convertAppPath(appData.cwd);
+  if (Array.isArray(appData.args)) {
+    converted.args = await Promise.all(appData.args.map(async (a) => {
+      // 只转换形如 /xxx/yyy 的路径参数，避免误伤 /flag 形式的参数
+      if (typeof a === 'string' && a.startsWith('/') && a.indexOf('/', 1) > 0) {
+        return await convertAppPath(a);
+      }
+      return a;
+    }));
+  }
+  return converted;
+}
+
+/**
  * 启动应用程序
  * @param {string} appName - .app 文件名（不含扩展名）
  */
@@ -1111,7 +1225,7 @@ ipcMain.handle('app:launch', async (_, appName) => {
     console.log('Attempting to launch app:', appPath);
     
     const appDataRaw = await fs.readFile(appPath, 'utf-8');
-    const appData = JSON.parse(appDataRaw);
+    const appData = await convertAppDataPaths(JSON.parse(appDataRaw));
     console.log('App config loaded:', appData);
     
     if (!appData.exePath) {
@@ -1124,10 +1238,11 @@ ipcMain.handle('app:launch', async (_, appName) => {
                        appData.exePath.toLowerCase().endsWith('powershell.exe') ||
                        appData.exePath.toLowerCase().endsWith('amsys.exe');
     
-    const child = spawn(appData.exePath, [], {
+    const child = spawn(appData.exePath, appData.args || [], {
       detached: true,
       stdio: isTerminal ? 'inherit' : 'ignore',
-      shell: isTerminal
+      shell: isTerminal,
+      cwd: appData.cwd || undefined
     });
     
     child.unref();
@@ -1213,20 +1328,33 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
       }
     }
     
+    // 支持 .app 配置中的 Unix 风格路径（/usr、/opt、/mnt/c 等）
+    appData = await convertAppDataPaths(appData);
+    
     let iconPath = appData.icon;
     
-    if (iconPath && !iconPath.toLowerCase().match(/\.(png|jpg|jpeg|ico|gif)$/)) {
+    if (iconPath) {
       try {
         const nativeImage = require('electron').nativeImage;
-        const icon = nativeImage.createFromPath(iconPath);
+        let icon = null;
+        if (/\.(png|jpg|jpeg|gif)$/i.test(iconPath)) {
+          icon = nativeImage.createFromPath(iconPath);
+        } else if (/\.ico$/i.test(iconPath)) {
+          icon = nativeImage.createFromPath(iconPath);
+          if (icon.isEmpty()) {
+            icon = await app.getFileIcon(iconPath, { size: 'large' });
+          }
+        } else {
+          // exe 等程序图标：nativeImage.createFromPath 不支持 exe，必须用 app.getFileIcon
+          icon = await app.getFileIcon(iconPath, { size: 'large' });
+        }
         if (!icon.isEmpty()) {
-          const tempDir = require('os').tmpdir();
-          const tempIconPath = path.join(tempDir, `${appName}-icon.png`);
+          const tempIconPath = path.join(os.tmpdir(), `${appName}-icon.png`);
           await fs.writeFile(tempIconPath, icon.toPNG());
           iconPath = tempIconPath;
         }
       } catch (iconError) {
-        console.warn('Failed to extract icon from exe:', iconError.message);
+        console.warn('Failed to extract icon:', iconError.message);
       }
     }
     
@@ -1244,6 +1372,48 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
       success: false, 
       error: error.message 
     };
+  }
+});
+
+// 列出 /usr/share/applications 下所有 .app 文件（开始菜单的完整应用来源）
+ipcMain.handle('apps:listAll', async () => {
+  try {
+    let appsDir;
+    try {
+      const converter = await getPathConverter(APP_ROOT);
+      const result = await converter.toWindows('/usr/share/applications');
+      if (result.success && result.winPath) {
+        appsDir = result.winPath;
+      } else {
+        throw new Error('path conversion failed');
+      }
+    } catch (converterError) {
+      appsDir = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications');
+    }
+
+    const entries = await fs.readdir(appsDir);
+    const apps = [];
+    for (const entry of entries) {
+      if (!entry.toLowerCase().endsWith('.app')) continue;
+      const appName = entry.replace(/\.app$/i, '');
+      try {
+        const raw = await fs.readFile(path.join(appsDir, entry), 'utf-8');
+        const data = await convertAppDataPaths(JSON.parse(raw));
+        apps.push({
+          appName,
+          name: data.name || appName,
+          description: data.description || '',
+          exePath: data.exePath || '',
+          icon: data.icon || null,
+        });
+      } catch (parseError) {
+        console.warn('Failed to parse app file:', entry, parseError.message);
+      }
+    }
+    return { success: true, apps };
+  } catch (error) {
+    console.error('Failed to list apps:', error.message);
+    return { success: false, error: error.message, apps: [] };
   }
 });
 
@@ -1319,31 +1489,116 @@ ipcMain.on('lockscreen:unlock', () => {
   }
 });
 
+/**
+ * 启动 amsys Shell 窗口（Shell 模式）
+ *
+ * 通过 Start-Process 让 amsys 运行在独立控制台窗口中（而非继承 Electron
+ * 的控制台或没有窗口），并拿到真实 PID 以便后续强制清理。
+ *
+ * 关闭语义：
+ * - 用户点击窗口 X / 任务管理器强杀 → amsys 退出码非 0 → 视为"被关闭"，
+ *   Shell 模式期间自动重启，保证窗口无法被关闭；
+ * - 用户在 amsys 中输入 exit 正常退出 → 退出码 0 → 视为"主动退出"，
+ *   自动结束 Shell 模式并恢复主界面。
+ */
 function startAmsysProcess() {
   const amsysPath = path.join(APP_ROOT, 'src', 'amsys', 'amsys.exe');
+  const scriptPath = path.join(os.tmpdir(), `amengui_shell_${Date.now()}.ps1`);
+  const scriptContent = [
+    '$proc = Start-Process -FilePath $args[0] -WorkingDirectory $args[1] -PassThru',
+    'Write-Output ("PID=" + $proc.Id)',
+    '$proc.WaitForExit()',
+    'Write-Output ("EXITCODE=" + $proc.ExitCode)'
+  ].join('\r\n');
   
-  amsysProcess = spawn(amsysPath, [], {
-    stdio: ['inherit', 'inherit', 'inherit'],
-    detached: true,
-    cwd: APP_ROOT
-  });
-  
-  amsysProcess.on('exit', (code) => {
-    console.log(`amsys process exited with code: ${code}`);
-    if (isShellMode) {
-      console.log('Restarting amsys in shell mode...');
-      startAmsysProcess();
-    }
-  });
-  
-  amsysProcess.on('error', (err) => {
-    console.error('amsys process error:', err);
-    if (isShellMode) {
-      setTimeout(() => {
-        startAmsysProcess();
-      }, 1000);
-    }
-  });
+  fs.writeFile(scriptPath, scriptContent, 'utf-8')
+    .then(async () => {
+      const pwsh = await getPwshPath();
+      const launcher = spawn(pwsh, [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', scriptPath,
+        amsysPath,
+        APP_ROOT
+      ], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      });
+      
+      amsysProcess = launcher;
+      amsysShellPid = null;
+      
+      let launcherStdout = '';
+      launcher.stdout.on('data', (data) => {
+        const text = data.toString();
+        launcherStdout += text;
+        const pidMatch = text.match(/PID=(\d+)/);
+        if (pidMatch) {
+          amsysShellPid = parseInt(pidMatch[1], 10);
+          console.log('amsys window started, pid:', amsysShellPid);
+        }
+      });
+      launcher.stderr.on('data', (data) => {
+        console.error('[amsys launcher stderr]', data.toString());
+      });
+      
+      launcher.on('exit', () => {
+        fs.unlink(scriptPath, () => {});
+        const pidMatch = launcherStdout.match(/PID=(\d+)/);
+        const codeMatch = launcherStdout.match(/EXITCODE=(\d+)/);
+        const amsysPid = pidMatch ? parseInt(pidMatch[1], 10) : null;
+        const amsysExitCode = codeMatch ? parseInt(codeMatch[1], 10) : null;
+        
+        console.log(`amsys (pid ${amsysPid}) exited with code: ${amsysExitCode}`);
+        amsysProcess = null;
+        amsysShellPid = null;
+        
+        if (!isShellMode) return;
+        
+        if (amsysExitCode === 0) {
+          // 主动输入 exit：结束 Shell 模式，恢复主界面
+          console.log('amsys exited normally (exit), leaving shell mode...');
+          exitShellMode();
+          showMainUI();
+        } else {
+          // 被强制关闭：自动重启，保证 Shell 无法被关闭
+          console.log('amsys was closed forcefully, restarting in 1s...');
+          setTimeout(() => {
+            if (isShellMode) startAmsysProcess();
+          }, 1000);
+        }
+      });
+      
+      launcher.on('error', (err) => {
+        console.error('Failed to start amsys launcher:', err.message);
+        fs.unlink(scriptPath, () => {});
+        amsysProcess = null;
+        if (isShellMode) {
+          setTimeout(() => {
+            if (isShellMode) startAmsysProcess();
+          }, 1000);
+        }
+      });
+    })
+    .catch((err) => {
+      console.error('Failed to write amsys shell script:', err.message);
+      if (isShellMode) {
+        setTimeout(() => {
+          if (isShellMode) startAmsysProcess();
+        }, 1000);
+      }
+    });
+}
+
+function showMainUI() {
+  // 优先恢复进入 Shell 模式时被隐藏的窗口（桌面或登录页）
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.show();
+  } else if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+  } else {
+    createWindow();
+  }
 }
 
 ipcMain.on('auth:shell', () => {
@@ -1363,12 +1618,7 @@ ipcMain.on('auth:shell', () => {
 
 ipcMain.on('auth:exit-shell', () => {
   exitShellMode();
-  
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show();
-  } else {
-    createWindow();
-  }
+  showMainUI();
 });
 
 ipcMain.on('auth:shutdown', () => {
@@ -1382,16 +1632,21 @@ ipcMain.on('auth:restart', () => {
 });
 
 function exitShellMode() {
-  if (isShellMode && amsysProcess) {
-    console.log('=== Exiting Shell Mode ===');
-    isShellMode = false;
+  console.log('=== Exiting Shell Mode ===');
+  isShellMode = false;
+  if (amsysShellPid) {
+    console.log('Killing amsys process tree, pid:', amsysShellPid);
     try {
-      process.kill(-amsysProcess.pid);
+      spawn('taskkill', ['/F', '/T', '/PID', String(amsysShellPid)], {
+        stdio: 'ignore',
+        windowsHide: true
+      });
     } catch (e) {
       console.error('Failed to kill amsys process:', e);
     }
-    amsysProcess = null;
+    amsysShellPid = null;
   }
+  amsysProcess = null;
 }
 
 ipcMain.handle('control-center:show', async () => {
@@ -1401,11 +1656,15 @@ ipcMain.handle('control-center:show', async () => {
   }
   
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width } = primaryDisplay.workAreaSize;
+  const { width, height } = primaryDisplay.workAreaSize;
+  const CONTROL_CENTER_WIDTH = 320;
+  const CONTROL_CENTER_HEIGHT = 420;
+  // 悬浮任务栏：底部 8px 起、高 48px，面板定位在其上方并留 12px 间距
+  const BOTTOM_MARGIN = 68;
   
   controlCenterWindow = new BrowserWindow({
-    width: 320,
-    height: 420,
+    width: CONTROL_CENTER_WIDTH,
+    height: CONTROL_CENTER_HEIGHT,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -1416,7 +1675,7 @@ ipcMain.handle('control-center:show', async () => {
     },
   });
   
-  controlCenterWindow.setPosition(width - 336, 40);
+  controlCenterWindow.setPosition(width - CONTROL_CENTER_WIDTH - 16, height - CONTROL_CENTER_HEIGHT - BOTTOM_MARGIN);
   controlCenterWindow.loadFile(path.join(__dirname, 'control-center.html'));
   
   controlCenterWindow.on('closed', () => {
@@ -1434,243 +1693,387 @@ ipcMain.handle('control-center:hide', async () => {
   }
 });
 
-async function getPwshCommand() {
+ipcMain.handle('control-center:resize', async (_, width, height) => {
+  if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    const w = Math.max(280, Math.min(480, parseInt(width) || 320));
+    const h = Math.max(320, Math.min(900, parseInt(height) || 420));
+    controlCenterWindow.setSize(w, h);
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: sw, height: sh } = primaryDisplay.workAreaSize;
+    const BOTTOM_MARGIN = 68;
+    controlCenterWindow.setPosition(sw - w - 16, sh - h - BOTTOM_MARGIN);
+    return { success: true };
+  }
+  return { success: false };
+});
+
+async function getPwshPath() {
   try {
     await fs.access(PWSH_PATH);
-    return `"${PWSH_PATH}"`;
+    return PWSH_PATH;
   } catch {
     return 'powershell';
   }
 }
 
+/**
+ * 常驻 PowerShell 服务：避免每次操作都冷启动 pwsh（冷启动 + 模块枚举可达数秒）
+ * 通过 stdin/stdout 的 JSON Lines 协议通信；进程内缓存由脚本自身维护
+ */
+class PwshServer {
+  constructor(scriptPath) {
+    this.scriptPath = scriptPath;
+    this.child = null;
+    this.pending = new Map();
+    this.seq = 0;
+    this.buffer = '';
+    this.starting = null;
+  }
+
+  ensureStarted() {
+    if (this.child && this.child.exitCode === null) return Promise.resolve();
+    if (this.starting) return this.starting;
+    this.starting = this.start().finally(() => { this.starting = null; });
+    return this.starting;
+  }
+
+  async start() {
+    const pwshPath = await getPwshPath();
+    const child = spawn(pwshPath, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath, '-Server'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    this.child = child;
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => this.onData(chunk));
+    child.stderr.on('data', (d) => console.error('[pwsh-server]', String(d).trim()));
+    child.on('exit', () => {
+      this.child = null;
+      const err = new Error('pwsh server exited');
+      for (const [, p] of this.pending) {
+        clearTimeout(p.timer);
+        p.reject(err);
+      }
+      this.pending.clear();
+    });
+    child.on('error', () => {
+      this.child = null;
+    });
+  }
+
+  onData(chunk) {
+    this.buffer += chunk;
+    let idx;
+    while ((idx = this.buffer.indexOf('\n')) >= 0) {
+      const line = this.buffer.slice(0, idx).trim();
+      this.buffer = this.buffer.slice(idx + 1);
+      if (!line) continue;
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const p = this.pending.get(msg.id);
+      if (!p) continue;
+      this.pending.delete(msg.id);
+      clearTimeout(p.timer);
+      if (msg.ok) {
+        p.resolve(msg.data);
+      } else {
+        p.reject(new Error(msg.error || 'pwsh command failed'));
+      }
+    }
+  }
+
+  command(cmd, args = [], timeoutMs = IPC_TIMEOUT) {
+    return this.ensureStarted().then(() => {
+      if (!this.child || this.child.exitCode !== null) {
+        return Promise.reject(new Error('pwsh server unavailable'));
+      }
+      const id = ++this.seq;
+      const payload = JSON.stringify({ id, cmd, args });
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`pwsh command timeout: ${cmd}`));
+        }, timeoutMs);
+        this.pending.set(id, { resolve, reject, timer });
+        try {
+          this.child.stdin.write(payload + '\n');
+        } catch (e) {
+          this.pending.delete(id);
+          clearTimeout(timer);
+          reject(e);
+        }
+      });
+    });
+  }
+
+  kill() {
+    if (this.child && this.child.exitCode === null) {
+      try { this.child.stdin.end(); } catch {}
+      try { this.child.kill(); } catch {}
+    }
+  }
+}
+
+const audioServer = new PwshServer(AUDIO_SCRIPT);
+const sysServer = new PwshServer(SYS_SCRIPT);
+
+// 能力探测缓存（10 分钟；应用启动时已后台预热）
+let capabilitiesCache = null;
+let capabilitiesCacheAt = 0;
+
+async function getCapabilities(force = false) {
+  const now = Date.now();
+  if (!force && capabilitiesCache && now - capabilitiesCacheAt < 600000) {
+    return capabilitiesCache;
+  }
+  const [sysRes, audioRes] = await Promise.all([
+    sysServer.command('capabilities', [], 20000).catch(() => ({})),
+    audioServer.command('capabilities', [], 30000).catch(() => ({})),
+  ]);
+  // 探测失败时按"可用"处理（UI 仍尝试），仅显式返回 false 才禁用
+  const caps = {
+    audio: !(audioRes && audioRes.audio === false),
+    network: !(sysRes && sysRes.network === false),
+    bluetooth: !(sysRes && sysRes.bluetooth === false),
+    brightness: !(sysRes && sysRes.brightness === false),
+    flightMode: !(sysRes && sysRes.flightMode === false),
+    nightMode: !(sysRes && sysRes.nightMode === false),
+  };
+  capabilitiesCache = caps;
+  capabilitiesCacheAt = now;
+  return caps;
+}
+
+/**
+ * 应用启动时后台预热：拉起音频/系统常驻服务并预取能力与设备状态，
+ * 让控制中心打开和开关操作不再经历冷启动
+ */
+function prewarmSystemServices() {
+  // 音频服务首启会编译 Core Audio COM 互操作代码（数秒），提前完成
+  audioServer.command('capabilities', [], 30000).catch((e) => {
+    console.error('Audio prewarm failed:', e.message);
+  });
+  // 系统服务首启 + 能力枚举 + 亮度/网络/蓝牙状态预热（WMI/PnP 首次调用较慢）
+  getCapabilities()
+    .then(() => sysServer.command('getBrightness', [], 15000))
+    .then(() => sysServer.command('networkStatus', [], 15000))
+    .then(() => sysServer.command('bluetoothStatus', [], 20000))
+    .then(() => sysServer.command('wifiStatus', [], 15000))
+    .then(() => sysServer.command('btDevices', [], 20000))
+    .then(() => audioServer.command('getVolume', [], 15000))
+    .catch((e) => {
+      console.error('System prewarm failed:', e.message);
+    });
+}
+
 ipcMain.handle('system:getVolume', async () => {
   try {
-    const pwsh = await getPwshCommand();
-    const { stdout } = await execAsync(`${pwsh} -Command "[audio]::Volume"`);
-    const volume = parseInt(stdout.trim());
-    return isNaN(volume) ? 50 : volume;
+    const r = await audioServer.command('getVolume', [], 30000);
+    return {
+      success: !!(r && r.success),
+      volume: r && typeof r.volume === 'number' ? Math.round(r.volume) : -1,
+      mute: !!(r && r.mute),
+      deviceName: (r && r.deviceName) || '',
+    };
   } catch (e) {
-    try {
-      const pwsh = await getPwshCommand();
-      const { stdout } = await execAsync(`${pwsh} -Command "(Get-WmiObject -Namespace root\\CIMV2 -Class Win32_ComputerSystem).Volume"`);
-      const volume = parseInt(stdout.trim());
-      return isNaN(volume) ? 50 : volume;
-    } catch (e2) {
-      console.error('Failed to get volume:', e2);
-      return 50;
-    }
+    return { success: false, volume: -1, mute: false, deviceName: '', error: e.message };
   }
 });
 
 ipcMain.handle('system:setVolume', async (_, volume) => {
   try {
-    const pwsh = await getPwshCommand();
-    const scriptPath = path.join(os.tmpdir(), `amengui_setvolume_${Date.now()}.ps1`);
-    const scriptContent = `
-\$volumePercent = ${volume}
-Add-Type -AssemblyName System.Core
-\$audio = [System.Windows.Media.MediaPlayer]::new()
-\$audio.Close()
-\$vol = [System.Windows.Media.AudioVolume]::new()
-\$vol.Volume = \$volumePercent / 100
-[System.Windows.Media.AudioVolume]::SetMasterVolume(\$volumePercent / 100)
-    `.trim();
-    
-    await fs.writeFile(scriptPath, scriptContent);
-    
-    try {
-      await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
-      return { success: true };
-    } finally {
-      fs.unlink(scriptPath, () => {});
-    }
+    const v = Math.max(0, Math.min(100, parseInt(volume) || 0));
+    const r = await audioServer.command('setVolume', [v], 20000);
+    return { success: !!(r && r.success) };
   } catch (e) {
-    try {
-      const pwsh = await getPwshCommand();
-      const scriptPath = path.join(os.tmpdir(), `amengui_setvolume2_${Date.now()}.ps1`);
-      const scriptContent = `
-\$volume = ${volume}
-\$obj = New-Object -ComObject WScript.Shell
-\$obj.SendKeys([char]174)
-for(\$i=0;\$i -lt 50;\$i++){\$obj.SendKeys([char]174)}
-for(\$i=0;\$i -lt \$volume;\$i++){\$obj.SendKeys([char]175)}
-      `.trim();
-      
-      await fs.writeFile(scriptPath, scriptContent);
-      
-      try {
-        await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
-        return { success: true };
-      } finally {
-        fs.unlink(scriptPath, () => {});
-      }
-    } catch (e2) {
-      console.error('Failed to set volume:', e2);
-      return { success: false, error: e2.message };
-    }
+    return { success: false, error: e.message };
   }
+});
+
+ipcMain.handle('system:setMute', async (_, mute) => {
+  try {
+    const r = await audioServer.command('setMute', [!!mute], 15000);
+    return { success: !!(r && r.success) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getAudioDevices', async () => {
+  try {
+    const r = await audioServer.command('getDevices', [], 15000);
+    return { success: true, defaultId: (r && r.defaultId) || null, devices: (r && r.devices) || [] };
+  } catch (e) {
+    return { success: false, error: e.message, devices: [] };
+  }
+});
+
+ipcMain.handle('system:setDefaultAudioDevice', async (_, id) => {
+  try {
+    const r = await audioServer.command('setDefaultDevice', [String(id || '')], 15000);
+    return { success: !!(r && r.success) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getAudioSessions', async () => {
+  try {
+    const r = await audioServer.command('getSessions', [], 20000);
+    return { success: true, sessions: (r && r.sessions) || [] };
+  } catch (e) {
+    return { success: false, error: e.message, sessions: [] };
+  }
+});
+
+ipcMain.handle('system:setSessionVolume', async (_, pid, volume) => {
+  try {
+    const v = Math.max(0, Math.min(100, parseInt(volume) || 0));
+    const r = await audioServer.command('setSessionVolume', [parseInt(pid) || 0, v], 15000);
+    return { success: !!(r && r.success) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:setSessionMute', async (_, pid, mute) => {
+  try {
+    const r = await audioServer.command('setSessionMute', [parseInt(pid) || 0, !!mute], 15000);
+    return { success: !!(r && r.success) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getCapabilities', async () => {
+  return await getCapabilities();
 });
 
 ipcMain.handle('system:getBrightness', async () => {
   try {
-    const pwsh = await getPwshCommand();
-    const { stdout } = await execAsync(`${pwsh} -Command "(Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightness).CurrentBrightness"`);
-    const brightness = parseInt(stdout.trim());
-    return isNaN(brightness) ? 50 : brightness;
+    const r = await sysServer.command('getBrightness', [], 15000);
+    if (!(r && r.success)) return { success: false, brightness: -1, error: (r && r.error) || 'unavailable' };
+    return { success: true, brightness: r.brightness };
   } catch (e) {
-    console.error('Failed to get brightness:', e);
-    return 50;
+    return { success: false, brightness: -1, error: e.message };
   }
 });
 
 ipcMain.handle('system:setBrightness', async (_, brightness) => {
   try {
-    const pwsh = await getPwshCommand();
-    await execAsync(`${pwsh} -Command "(Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, ${brightness})"`);
-    return { success: true };
+    const v = Math.max(0, Math.min(100, parseInt(brightness) || 0));
+    const r = await sysServer.command('setBrightness', [v], 15000);
+    return { success: !!(r && r.success) };
   } catch (e) {
-    console.error('Failed to set brightness:', e);
-    return { success: false, error: e.message };
-  }
-});
-
-ipcMain.handle('system:openVolumeMixer', async () => {
-  try {
-    spawn('sndvol.exe', [], { detached: true });
-    return { success: true };
-  } catch (e) {
-    console.error('Failed to open volume mixer:', e);
     return { success: false, error: e.message };
   }
 });
 
 ipcMain.handle('system:toggleNetwork', async () => {
   try {
-    const pwsh = await getPwshCommand();
-    const scriptPath = path.join(os.tmpdir(), `amengui_togglenetwork_${Date.now()}.ps1`);
-    const scriptContent = `
-\$adapters = Get-NetAdapter | Where-Object { \$_.Status -eq 'Up' }
-if (\$adapters) {
-  \$adapterName = \$adapters[0].Name
-  netsh interface set interface name="\$adapterName" admin=disabled
-  Write-Output "disabled"
-} else {
-  \$disabled = Get-NetAdapter | Where-Object { \$_.Status -eq 'Disconnected' }
-  if (\$disabled) {
-    \$adapterName = \$disabled[0].Name
-    netsh interface set interface name="\$adapterName" admin=enabled
-    Write-Output "enabled"
-  } else {
-    Write-Output "not_found"
-  }
-}
-    `.trim();
-    
-    await fs.writeFile(scriptPath, scriptContent);
-    
-    try {
-      const { stdout } = await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
-      const result = stdout.trim();
-      if (result === 'disabled') {
-        return { success: true, enabled: false };
-      } else if (result === 'enabled') {
-        return { success: true, enabled: true };
-      } else {
-        return { success: false, error: 'No network adapter found' };
-      }
-    } finally {
-      fs.unlink(scriptPath, () => {});
-    }
+    return await sysServer.command('networkToggle', [], 20000);
   } catch (e) {
-    console.error('Failed to toggle network:', e);
     return { success: false, error: e.message };
   }
 });
 
 ipcMain.handle('system:toggleBluetooth', async () => {
   try {
-    const pwsh = await getPwshCommand();
-    const scriptPath = path.join(os.tmpdir(), `amengui_togglebluetooth_${Date.now()}.ps1`);
-    const scriptContent = `
-\$status = (Get-Service bthserv).Status
-if (\$status -eq 'Running') {
-  Stop-Service bthserv -Force
-  Write-Output "disabled"
-} else {
-  Start-Service bthserv
-  Write-Output "enabled"
-}
-    `.trim();
-    
-    await fs.writeFile(scriptPath, scriptContent);
-    
-    try {
-      const { stdout } = await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
-      const result = stdout.trim();
-      return { success: true, enabled: result === 'enabled' };
-    } finally {
-      fs.unlink(scriptPath, () => {});
-    }
+    return await sysServer.command('bluetoothToggle', [], 20000);
   } catch (e) {
-    console.error('Failed to toggle bluetooth:', e);
     return { success: false, error: e.message };
   }
 });
 
 ipcMain.handle('system:toggleFlightMode', async () => {
   try {
-    const pwsh = await getPwshCommand();
-    const scriptPath = path.join(os.tmpdir(), `amengui_flightmode_${Date.now()}.ps1`);
-    const scriptContent = `
-\$key = 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\RadioManagement\\SystemRadioState'
-\$val = Get-ItemProperty -Path \$key -Name SystemRadioState
-if (\$val.SystemRadioState -eq 1) {
-  Set-ItemProperty -Path \$key -Name SystemRadioState -Value 0
-} else {
-  Set-ItemProperty -Path \$key -Name SystemRadioState -Value 1
-}
-(Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\RadioManagement\\SystemRadioState').SystemRadioState
-    `.trim();
-    
-    await fs.writeFile(scriptPath, scriptContent);
-    
-    try {
-      const { stdout } = await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
-      const enabled = stdout.trim() === '1';
-      return { success: true, enabled };
-    } finally {
-      fs.unlink(scriptPath, () => {});
-    }
+    return await sysServer.command('flightToggle', [], 15000);
   } catch (e) {
-    console.error('Failed to toggle flight mode:', e);
     return { success: false, error: e.message };
   }
 });
 
 ipcMain.handle('system:toggleNightMode', async () => {
   try {
-    const pwsh = await getPwshCommand();
-    const scriptPath = path.join(os.tmpdir(), `amengui_nightmode_${Date.now()}.ps1`);
-    const scriptContent = `
-\$path = 'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\Cache\\DefaultAccount\\\$\\$windows.data.bluelightreduction.bluelightreductionstate\\Current'
-\$val = Get-ItemProperty -Path \$path
-if (\$val.Data -match '01') {
-  Set-ItemProperty -Path \$path -Name Data -Value ([byte[]]@(0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00))
-} else {
-  Set-ItemProperty -Path \$path -Name Data -Value ([byte[]]@(0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x00))
-}
-    `.trim();
-    
-    await fs.writeFile(scriptPath, scriptContent);
-    
-    try {
-      await execAsync(`${pwsh} -ExecutionPolicy Bypass -File "${scriptPath}"`);
-      return { success: true, enabled: true };
-    } finally {
-      fs.unlink(scriptPath, () => {});
-    }
+    return await sysServer.command('nightToggle', [], 15000);
   } catch (e) {
-    console.error('Failed to toggle night mode:', e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getWifiStatus', async () => {
+  try {
+    return await sysServer.command('wifiStatus', [], 15000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:setWifiPower', async (_, enabled) => {
+  try {
+    return await sysServer.command('wifiPower', [!!enabled], 15000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:scanWifi', async () => {
+  try {
+    return await sysServer.command('wifiScan', [], 20000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:connectWifi', async (_, ssid, password) => {
+  try {
+    return await sysServer.command('wifiConnect', [String(ssid || ''), String(password || '')], 20000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:disconnectWifi', async () => {
+  try {
+    return await sysServer.command('wifiDisconnect', [], 15000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getBluetoothDevices', async () => {
+  try {
+    return await sysServer.command('btDevices', [], 20000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getBluetoothStatus', async () => {
+  try {
+    return await sysServer.command('bluetoothStatus', [], 15000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:connectBluetoothDevice', async (_, instanceId) => {
+  try {
+    return await sysServer.command('btConnect', [String(instanceId || '')], 15000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:disconnectBluetoothDevice', async (_, instanceId) => {
+  try {
+    return await sysServer.command('btDisconnect', [String(instanceId || '')], 15000);
+  } catch (e) {
     return { success: false, error: e.message };
   }
 });

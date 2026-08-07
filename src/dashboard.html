@@ -26,24 +26,18 @@
     
     <!-- 时间显示 -->
     <div class="taskbar-time-container">
-      <!-- 控制中心图标 -->
-      <div class="control-center-icons">
-        <button class="control-icon-btn" id="btn-network-icon" title="网络">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 3C7.46 3 3.34 4.78.29 7.67c-.18.18-.29.43-.29.71 0 .28.11.53.29.71l10 10c.39.39 1.02.39 1.41 0l10-10c.18-.18.29-.43.29-.71 0-.28-.11-.53-.29-.71C20.66 4.78 16.54 3 12 3zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
-          </svg>
-        </button>
-        <button class="control-icon-btn" id="btn-volume-icon" title="音量">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-          </svg>
-        </button>
-        <button class="control-icon-btn" id="btn-battery-icon" title="电池">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M17 6H7c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H7V8h10v8zm3-12v14h1V4h-1z"/>
-          </svg>
-        </button>
-      </div>
+      <!-- 控制中心图标（Windows 11 风格：三图标合一按钮） -->
+      <button class="control-center-btn" id="btn-control-center" title="网络、音量、电池">
+        <svg viewBox="0 0 24 24" fill="currentColor" title="网络">
+          <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
+        </svg>
+        <svg viewBox="0 0 24 24" fill="currentColor" title="音量">
+          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+        </svg>
+        <svg viewBox="0 0 24 24" fill="currentColor" title="电池">
+          <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/>
+        </svg>
+      </button>
       <button class="taskbar-time-btn" id="taskbar-time-btn">
         <div class="time-display" id="time-display"></div>
         <div class="date-display" id="date-display"></div>

@@ -4,7 +4,8 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
-    asarUnpack: [],
+    // src/scripts 由外部 pwsh 进程直接读取，必须解包到 app.asar.unpacked
+    asarUnpack: ['src/scripts/**'],
     ignore: [
       /^[\\/]rootdir[\\/]/,
       /^[\\/]config[\\/]/,

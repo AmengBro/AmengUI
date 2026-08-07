@@ -108,10 +108,11 @@ class PathConverter {
     }
 
     if (resolved.startsWith('/mnt/') || resolved.startsWith('/media/')) {
-      const driveLetter = resolved.split('/')[2];
+      const parts = resolved.split('/').filter(p => p !== '');
+      const driveLetter = parts[1];
       if (driveLetter && driveLetter.length === 1) {
-        const remaining = resolved.substring(5);
-        return { success: true, winPath: driveLetter.toUpperCase() + ':' + remaining.replace(/\//g, '\\') };
+        const remaining = parts.slice(2).join('\\');
+        return { success: true, winPath: driveLetter.toUpperCase() + ':' + (remaining ? '\\' + remaining : '\\') };
       }
     }
 

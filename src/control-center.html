@@ -8,83 +8,194 @@
 </head>
 <body>
   <div id="control-center" class="control-center">
-    <div class="quick-settings">
-      <div class="settings-grid">
-        <button class="setting-btn" id="btn-network" data-toggle="network">
-          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
-            <path d="M12 3C7.46 3 3.34 4.78.29 7.67c-.18.18-.29.43-.29.71 0 .28.11.53.29.71l10 10c.39.39 1.02.39 1.41 0l10-10c.18-.18.29-.43.29-.71 0-.28-.11-.53-.29-.71C20.66 4.78 16.54 3 12 3zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>
-          </svg>
-          <span class="setting-label">网络</span>
-          <span class="setting-value" id="network-value">TP-LINK_FE1D</span>
-        </button>
+    <!-- 初始加载遮罩 -->
+    <div id="center-loading" class="center-loading">
+      <div class="spinner"></div>
+      <span>正在加载…</span>
+    </div>
 
-        <button class="setting-btn" id="btn-bluetooth" data-toggle="bluetooth">
-          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+    <!-- 主视图 -->
+    <div id="view-main" class="view">
+      <div class="quick-settings">
+        <div class="settings-grid">
+          <button class="setting-btn" id="btn-network" data-toggle="network" title="网络">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+              <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
+            </svg>
+            <span class="setting-label">网络</span>
+            <span class="setting-value" id="network-value">选择网络</span>
+          </button>
+
+          <button class="setting-btn" id="btn-bluetooth" title="蓝牙">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+              <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+            </svg>
+            <span class="setting-label">蓝牙</span>
+            <span class="setting-value" id="bluetooth-value">选择设备</span>
+          </button>
+
+          <button class="setting-btn" id="btn-flight-mode" title="飞行模式">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+              <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+            </svg>
+            <span class="setting-label">飞行模式</span>
+            <span class="setting-value" id="flight-mode-value">…</span>
+          </button>
+        </div>
+
+        <div class="settings-grid">
+          <button class="setting-btn" id="btn-night-mode" title="夜间模式">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
+              <path d="M12 3a6 6 0 0 0-9 9c0 2.38 1.19 4.47 3 5.74V17a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v1.74c1.81-1.27 3-3.36 3-5.74a6 6 0 0 0-9-9z"/>
+            </svg>
+            <span class="setting-label">夜间模式</span>
+            <span class="setting-value" id="night-mode-value">…</span>
+          </button>
+        </div>
+
+        <div class="slider-section">
+          <div class="slider-item" id="brightness-item">
+            <div class="slider-header">
+              <svg viewBox="0 0 24 24" fill="currentColor" class="slider-icon">
+                <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/>
+              </svg>
+              <span class="slider-label">亮度</span>
+            </div>
+            <div class="slider-container">
+              <input type="range" id="brightness-slider" min="0" max="100" value="50" class="slider">
+              <span class="slider-value" id="brightness-value">50%</span>
+            </div>
+          </div>
+
+          <div class="slider-item" id="volume-item">
+            <div class="slider-header">
+              <svg viewBox="0 0 24 24" fill="currentColor" class="slider-icon">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+              </svg>
+              <span class="slider-label">音量</span>
+            </div>
+            <div class="slider-container">
+              <input type="range" id="volume-slider" min="0" max="100" value="50" class="slider">
+              <span class="slider-value" id="volume-value">50%</span>
+              <button id="btn-volume-mixer" class="mixer-btn" title="打开自制音量合成器面板" aria-label="打开自制音量合成器面板">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="battery-section">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="battery-icon">
+            <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/>
+          </svg>
+          <span class="battery-text" id="battery-text">100%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自制音量合成器视图 -->
+    <div id="view-mixer" class="view hidden">
+      <div class="mixer-header">
+        <button id="btn-mixer-back" class="mixer-icon-btn" title="返回">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+          </svg>
+        </button>
+        <span class="mixer-title">音量合成器</span>
+        <button id="btn-mixer-refresh" class="mixer-icon-btn" title="刷新">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="device-selector">
+        <button id="btn-device-toggle" class="device-toggle" title="输出设备选择">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+          </svg>
+          <span id="device-name" class="device-name">输出设备</span>
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+          </svg>
+        </button>
+        <div id="device-dropdown" class="device-dropdown hidden"></div>
+      </div>
+
+      <div id="sessions-list" class="sessions-list">
+        <div class="sessions-status"><div class="spinner"></div><span>正在读取音频会话…</span></div>
+      </div>
+      <div id="mixer-error" class="mixer-error hidden"></div>
+    </div>
+
+    <!-- 网络选择视图 -->
+    <div id="view-network" class="view hidden">
+      <div class="mixer-header">
+        <button id="btn-network-back" class="mixer-icon-btn" title="返回">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+          </svg>
+        </button>
+        <span class="mixer-title">网络</span>
+        <button id="btn-network-refresh" class="mixer-icon-btn" title="刷新">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="net-status-card" id="network-status-card">
+        <div class="net-status-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
+          </svg>
+        </div>
+        <div class="net-status-info">
+          <span class="net-status-title" id="network-status-title">正在获取状态…</span>
+          <span class="net-status-sub" id="network-status-sub">—</span>
+        </div>
+        <button class="toggle-switch" id="btn-wifi-power" title="WiFi 开关"></button>
+      </div>
+
+      <div class="section-title">可用网络</div>
+      <div id="wifi-list" class="sessions-list"></div>
+      <div id="network-error" class="mixer-error hidden"></div>
+    </div>
+
+    <!-- 蓝牙选择视图 -->
+    <div id="view-bluetooth" class="view hidden">
+      <div class="mixer-header">
+        <button id="btn-bluetooth-back" class="mixer-icon-btn" title="返回">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+          </svg>
+        </button>
+        <span class="mixer-title">蓝牙</span>
+        <button id="btn-bluetooth-refresh" class="mixer-icon-btn" title="刷新">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="net-status-card" id="bluetooth-status-card">
+        <div class="net-status-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor">
             <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
           </svg>
-          <span class="setting-label">蓝牙</span>
-          <span class="setting-value" id="bluetooth-value">关</span>
-        </button>
-
-        <button class="setting-btn" id="btn-flight-mode" data-toggle="flight-mode">
-          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
-            <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
-          </svg>
-          <span class="setting-label">飞行模式</span>
-          <span class="setting-value" id="flight-mode-value">关</span>
-        </button>
-      </div>
-
-      <div class="settings-grid">
-        <button class="setting-btn" id="btn-night-mode" data-toggle="night-mode">
-          <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
-            <path d="M12 3a6 6 0 0 0-9 9c0 2.38 1.19 4.47 3 5.74V17a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v1.74c1.81-1.27 3-3.36 3-5.74a6 6 0 0 0-9-9z"/>
-          </svg>
-          <span class="setting-label">夜间模式</span>
-          <span class="setting-value" id="night-mode-value">关</span>
-        </button>
-      </div>
-
-      <div class="slider-section">
-        <div class="slider-item">
-          <div class="slider-header">
-            <svg viewBox="0 0 24 24" fill="currentColor" class="slider-icon">
-              <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/>
-            </svg>
-            <span class="slider-label">亮度</span>
-          </div>
-          <div class="slider-container">
-            <input type="range" id="brightness-slider" min="0" max="100" value="50" class="slider">
-            <span class="slider-value" id="brightness-value">50%</span>
-          </div>
         </div>
-
-        <div class="slider-item">
-          <div class="slider-header">
-            <svg viewBox="0 0 24 24" fill="currentColor" class="slider-icon">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
-            <span class="slider-label">音量</span>
-            <button id="btn-volume-mixer" class="mixer-btn">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-                <path d="M11 7h2v10h-2zm4-3v2h2V4h-2zm-8 3v2h2V7H7zm-3 3v8h2v-8H4z"/>
-              </svg>
-            </button>
-          </div>
-          <div class="slider-container">
-            <input type="range" id="volume-slider" min="0" max="100" value="50" class="slider">
-            <span class="slider-value" id="volume-value">50%</span>
-          </div>
+        <div class="net-status-info">
+          <span class="net-status-title" id="bluetooth-status-title">正在获取状态…</span>
+          <span class="net-status-sub" id="bluetooth-status-sub">—</span>
         </div>
+        <button class="toggle-switch" id="btn-bt-power" title="蓝牙开关"></button>
       </div>
 
-      <div class="battery-section">
-        <svg viewBox="0 0 24 24" fill="currentColor" class="battery-icon">
-          <path d="M17 6H7c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H7V8h10v8zm3-12v14h1V4h-1z"/>
-        </svg>
-        <span class="battery-text">100%</span>
-      </div>
+      <div class="section-title">已配对设备</div>
+      <div id="bluetooth-list" class="sessions-list"></div>
+      <div id="bluetooth-error" class="mixer-error hidden"></div>
     </div>
   </div>
   <script src="control-center.js"></script>

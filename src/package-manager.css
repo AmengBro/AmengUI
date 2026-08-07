@@ -1,0 +1,178 @@
+:root {
+  --accent-color: #0078D4;
+  --bg: rgba(32, 32, 32, 0.98);
+  --bg-titlebar: rgba(255, 255, 255, 0.04);
+  --bg-elevated: rgba(255, 255, 255, 0.06);
+  --text: #fff;
+  --text-secondary: rgba(255, 255, 255, 0.62);
+  --text-muted: rgba(255, 255, 255, 0.42);
+  --border: rgba(255, 255, 255, 0.1);
+  --btn-hover: rgba(255, 255, 255, 0.1);
+}
+
+body.theme-bright {
+  --bg: rgba(250, 250, 250, 0.98);
+  --bg-titlebar: rgba(0, 0, 0, 0.03);
+  --bg-elevated: rgba(0, 0, 0, 0.04);
+  --text: #222;
+  --text-secondary: rgba(0, 0, 0, 0.65);
+  --text-muted: rgba(0, 0, 0, 0.42);
+  --border: rgba(0, 0, 0, 0.1);
+  --btn-hover: rgba(0, 0, 0, 0.07);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+}
+
+/* 标题栏 */
+.title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 12px 0 16px;
+  background: var(--bg-titlebar);
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  -webkit-app-region: drag;
+}
+
+.title-text {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.close-btn:hover {
+  background: var(--btn-hover);
+  color: var(--text);
+}
+
+/* 主体：Deepin 风格单应用卡片 */
+.content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 32px 16px;
+  min-height: 0;
+  flex: 1;
+}
+
+.app-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 340px;
+}
+
+.app-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  background: var(--bg-elevated);
+  color: var(--accent-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-icon svg {
+  width: 54px;
+  height: 54px;
+}
+
+.app-name {
+  margin-top: 18px;
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.app-version {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.app-desc {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+/* 底部操作区 */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px 24px;
+}
+
+.btn {
+  min-width: 84px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, filter 0.15s, border-color 0.15s;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  background: var(--btn-hover);
+  color: var(--text);
+}
+
+.btn-accent {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.btn-accent:hover {
+  filter: brightness(1.12);
+}
+
+.btn-accent:active {
+  filter: brightness(0.95);
+}

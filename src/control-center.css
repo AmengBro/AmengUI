@@ -5,25 +5,67 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: rgba(32, 32, 32, 0.95);
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  background: transparent;
   color: #fff;
   overflow: hidden;
+  user-select: none;
 }
 
 .control-center {
-  width: 320px;
-  min-height: 400px;
-  background: rgba(32, 32, 32, 0.98);
+  width: 100%;
+  height: 100%;
+  background: rgba(28, 28, 30, 0.97);
   border-radius: 12px;
-  padding: 16px;
+  padding: 14px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  position: relative;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #4cc2ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 初始加载遮罩 */
+.center-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  background: rgba(28, 28, 30, 0.96);
+  border-radius: 12px;
+  z-index: 20;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .quick-settings {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .settings-grid {
@@ -33,6 +75,7 @@ body {
 }
 
 .setting-btn {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -44,6 +87,7 @@ body {
   cursor: pointer;
   transition: all 0.2s ease;
   color: #fff;
+  min-width: 0;
 }
 
 .setting-btn:hover {
@@ -55,7 +99,31 @@ body {
 }
 
 .setting-btn.active .setting-icon {
-  color: #0078D4;
+  color: #4cc2ff;
+}
+
+.setting-btn.loading {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.setting-btn.loading::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.setting-btn.unsupported,
+.slider-item.unsupported {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 .setting-icon {
@@ -74,6 +142,10 @@ body {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.5);
   margin-top: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .slider-section {
@@ -106,35 +178,16 @@ body {
   color: rgba(255, 255, 255, 0.9);
 }
 
-.mixer-btn {
-  margin-left: auto;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  transition: background 0.2s;
-}
-
-.mixer-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.mixer-btn svg {
-  width: 16px;
-  height: 16px;
-  color: rgba(255, 255, 255, 0.5);
-}
-
 .slider-container {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 0 4px;
 }
 
 .slider {
   flex: 1;
+  min-width: 0;
   height: 4px;
   -webkit-appearance: none;
   appearance: none;
@@ -146,9 +199,9 @@ body {
 .slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
-  background: #0078D4;
+  width: 15px;
+  height: 15px;
+  background: #4cc2ff;
   border-radius: 50%;
   cursor: pointer;
   transition: transform 0.2s;
@@ -159,19 +212,48 @@ body {
 }
 
 .slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  background: #0078D4;
+  width: 15px;
+  height: 15px;
+  background: #4cc2ff;
   border-radius: 50%;
   cursor: pointer;
   border: none;
 }
 
+.slider:disabled {
+  opacity: 0.4;
+}
+
 .slider-value {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.7);
-  min-width: 40px;
+  min-width: 38px;
   text-align: right;
+  flex-shrink: 0;
+}
+
+/* 音量合成器入口（音量条右侧） */
+.mixer-btn {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mixer-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.mixer-btn svg {
+  width: 15px;
+  height: 15px;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .battery-section {
@@ -187,11 +269,510 @@ body {
 .battery-icon {
   width: 24px;
   height: 24px;
-  color: #00B248;
+  color: #00b248;
 }
 
 .battery-text {
   font-size: 14px;
   color: rgba(255, 255, 255, 0.9);
   font-weight: 500;
+}
+
+/* ===== 自制音量合成器视图 ===== */
+.mixer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mixer-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.mixer-icon-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.mixer-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mixer-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.device-selector {
+  position: relative;
+}
+
+.device-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.device-toggle:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.device-toggle svg {
+  width: 16px;
+  height: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
+}
+
+.device-name {
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  background: rgba(42, 42, 46, 0.99);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  z-index: 30;
+  overflow: hidden;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.device-item .check {
+  margin-left: auto;
+  color: #4cc2ff;
+  flex-shrink: 0;
+}
+
+.device-item .check svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding-right: 2px;
+}
+
+.sessions-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sessions-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.sessions-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 8px 10px;
+  transition: background 0.2s;
+}
+
+.session-row:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.session-icon-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.8);
+  transition: background 0.2s;
+}
+
+.session-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.session-icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.session-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.mute-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 15px;
+  height: 15px;
+  background: #c42b1c;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid rgba(28, 28, 30, 0.9);
+}
+
+.mute-badge svg {
+  width: 9px;
+  height: 9px;
+  color: #fff;
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-percent {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.session-slider {
+  flex: 0 0 112px;
+  min-width: 0;
+}
+
+.mixer-error {
+  padding: 10px 12px;
+  background: rgba(196, 43, 28, 0.15);
+  border: 1px solid rgba(196, 43, 28, 0.4);
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mixer-error button {
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mixer-error button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ===== 网络 / 蓝牙选择视图 ===== */
+.net-status-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.net-status-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+}
+
+.net-status-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.net-status-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.net-status-title {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.net-status-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 38px;
+  height: 21px;
+  border: none;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2.5px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.2s;
+}
+
+.toggle-switch.on {
+  background: var(--accent-color, #0078D4);
+}
+
+.toggle-switch.on::after {
+  left: 19px;
+}
+
+.toggle-switch:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.section-title {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 2px;
+}
+
+.wifi-row,
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 8px 10px;
+  transition: background 0.2s;
+}
+
+.wifi-row:hover,
+.device-row:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.wifi-row .wifi-name,
+.device-row .device-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wifi-row .wifi-auth {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.signal-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.signal-bars span {
+  width: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.signal-bars span.lit {
+  background: #4cc2ff;
+}
+
+.signal-bars span:nth-child(1) { height: 5px; }
+.signal-bars span:nth-child(2) { height: 8px; }
+.signal-bars span:nth-child(3) { height: 11px; }
+.signal-bars span:nth-child(4) { height: 14px; }
+
+.btn-small {
+  min-width: 56px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, filter 0.15s;
+}
+
+.btn-small.btn-connect {
+  background: var(--accent-color, #0078D4);
+  color: #fff;
+}
+
+.btn-small.btn-connect:hover {
+  filter: brightness(1.12);
+}
+
+.btn-small.btn-disconnect {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.btn-small.btn-disconnect:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-small.btn-connecting {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.btn-small:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.status-text {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.status-text.status-connected {
+  color: #4cc2ff;
+}
+
+.status-text.status-paired {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.status-text.status-error {
+  color: #f28b82;
+}
+
+.password-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 10px 38px;
+}
+
+.password-box input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 12px;
+  padding: 0 8px;
+  outline: none;
+}
+
+.password-box input:focus {
+  border-color: var(--accent-color, #0078D4);
+}
+
+.password-box .btn-small {
+  min-width: 48px;
 }

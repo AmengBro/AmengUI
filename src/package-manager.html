@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>包管理器</title>
+  <link rel="stylesheet" href="package-manager.css">
+</head>
+<body>
+  <div class="title-bar">
+    <span class="title-text">包管理器</span>
+    <button class="close-btn" id="btn-close" title="关闭">&times;</button>
+  </div>
+
+  <div class="content">
+    <div class="app-card">
+      <div class="app-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z"/>
+        </svg>
+      </div>
+      <h1 class="app-name" id="app-name">示例应用</h1>
+      <div class="app-version" id="app-version">1.0.0</div>
+      <p class="app-desc" id="app-desc">这是一个演示用的示例应用，用于展示包管理器安装确认界面的布局样式。</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <button class="btn btn-ghost" id="btn-cancel">取消</button>
+    <!-- 若用于 卸载/升级/降级/重装，仅需替换此标签与主按钮文字 -->
+    <button class="btn btn-accent" id="btn-install" title="功能开发中">安装</button>
+  </div>
+
+  <script src="package-manager.js"></script>
+</body>
+</html>

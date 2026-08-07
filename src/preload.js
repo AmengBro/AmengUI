@@ -66,12 +66,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getVolume: () => ipcRenderer.invoke('system:getVolume'),
     /** 设置系统音量 */
     setVolume: (volume) => ipcRenderer.invoke('system:setVolume', volume),
+    /** 切换主音量静音 */
+    setMute: (mute) => ipcRenderer.invoke('system:setMute', mute),
     /** 获取屏幕亮度 */
     getBrightness: () => ipcRenderer.invoke('system:getBrightness'),
     /** 设置屏幕亮度 */
     setBrightness: (brightness) => ipcRenderer.invoke('system:setBrightness', brightness),
-    /** 打开音量合成器 */
-    openVolumeMixer: () => ipcRenderer.invoke('system:openVolumeMixer'),
+    /** 获取输出设备列表 */
+    getAudioDevices: () => ipcRenderer.invoke('system:getAudioDevices'),
+    /** 设置默认输出设备 */
+    setDefaultAudioDevice: (id) => ipcRenderer.invoke('system:setDefaultAudioDevice', id),
+    /** 获取音频会话（应用音量）列表 */
+    getAudioSessions: () => ipcRenderer.invoke('system:getAudioSessions'),
+    /** 设置指定应用的音量 */
+    setSessionVolume: (pid, volume) => ipcRenderer.invoke('system:setSessionVolume', pid, volume),
+    /** 设置指定应用的静音 */
+    setSessionMute: (pid, mute) => ipcRenderer.invoke('system:setSessionMute', pid, mute),
     /** 切换网络状态 */
     toggleNetwork: () => ipcRenderer.invoke('system:toggleNetwork'),
     /** 切换蓝牙状态 */
@@ -79,7 +89,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 切换飞行模式 */
     toggleFlightMode: () => ipcRenderer.invoke('system:toggleFlightMode'),
     /** 切换夜间模式 */
-    toggleNightMode: () => ipcRenderer.invoke('system:toggleNightMode')
+    toggleNightMode: () => ipcRenderer.invoke('system:toggleNightMode'),
+    /** 获取 WiFi 连接状态 */
+    getWifiStatus: () => ipcRenderer.invoke('system:getWifiStatus'),
+    /** 开关 WiFi 适配器 */
+    setWifiPower: (enabled) => ipcRenderer.invoke('system:setWifiPower', enabled),
+    /** 扫描可用 WiFi */
+    scanWifi: () => ipcRenderer.invoke('system:scanWifi'),
+    /** 连接 WiFi（无密码传空串） */
+    connectWifi: (ssid, password) => ipcRenderer.invoke('system:connectWifi', ssid, password),
+    /** 断开当前 WiFi */
+    disconnectWifi: () => ipcRenderer.invoke('system:disconnectWifi'),
+    /** 获取已配对蓝牙设备 */
+    getBluetoothDevices: () => ipcRenderer.invoke('system:getBluetoothDevices'),
+    /** 获取蓝牙开关状态 */
+    getBluetoothStatus: () => ipcRenderer.invoke('system:getBluetoothStatus'),
+    /** 连接蓝牙设备 */
+    connectBluetoothDevice: (instanceId) => ipcRenderer.invoke('system:connectBluetoothDevice', instanceId),
+    /** 断开蓝牙设备 */
+    disconnectBluetoothDevice: (instanceId) => ipcRenderer.invoke('system:disconnectBluetoothDevice', instanceId),
+    /** 获取系统能力（PE 兼容性探测） */
+    getCapabilities: () => ipcRenderer.invoke('system:getCapabilities')
   },
   
   // 文件系统操作 API
@@ -110,6 +140,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     launch: (appName) => ipcRenderer.invoke('app:launch', appName),
     /** 获取应用信息 */
     getInfo: (appName) => ipcRenderer.invoke('app:getInfo', appName)
+  },
+  
+  // 应用列表 API
+  apps: {
+    /** 列出 /usr/share/applications 下所有 .app 应用 */
+    listAll: () => ipcRenderer.invoke('apps:listAll')
   },
   
   // 属性窗口 API
@@ -157,7 +193,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 显示控制中心 */
     show: () => ipcRenderer.invoke('control-center:show'),
     /** 隐藏控制中心 */
-    hide: () => ipcRenderer.invoke('control-center:hide')
+    hide: () => ipcRenderer.invoke('control-center:hide'),
+    /** 调整控制中心窗口尺寸（如进入音量合成器视图） */
+    resize: (width, height) => ipcRenderer.invoke('control-center:resize', width, height)
+  },
+  
+  // 包管理器 API
+  pkgManager: {
+    /** 打开包管理器窗口 */
+    show: (options) => ipcRenderer.invoke('pkgmanager:show', options),
+    /** 监听主题下发（窗口加载后由主进程推送） */
+    onTheme: (callback) => {
+      ipcRenderer.on('pkgmanager:theme', (event, data) => callback(data));
+    }
   }
 });
 
@@ -167,4 +215,3 @@ ipcRenderer.on('settings:change', (event, change) => {
     settingsChangeCallback(change);
   }
 });
-
