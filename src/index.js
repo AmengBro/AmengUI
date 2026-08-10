@@ -7,7 +7,7 @@ const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('node:path');
 const os = require('os');
 const fs = require('fs').promises;
-const { exec, spawn } = require('child_process');
+const { exec, spawn, spawnSync } = require('child_process');
 const { promisify } = require('util');
 const config = require('./config');
 const { getPathConverter } = require('./amsys/converter');
@@ -54,10 +54,6 @@ const APP_ROOT = getAppRoot();
 async function forceWindowToBottom(hwnd) {
   if (process.platform !== 'win32') return;
   
-  console.log(`=== forceWindowToBottom start ===`);
-  console.log(`hwnd (decimal): ${hwnd}`);
-  console.log(`hwnd (hex): 0x${hwnd.toString(16)}`);
-  
   const os = require('os');
   const scriptContent = `param(
     [Parameter(Mandatory=$true)]
@@ -80,9 +76,8 @@ $HWND_BOTTOM = [IntPtr]1
 $SWP_NOSIZE = 0x0001
 $SWP_NOMOVE = 0x0002
 $SWP_NOACTIVATE = 0x0010
-$SWP_SHOWWINDOW = 0x0040
 
-$result = [User32]::SetWindowPos($hwndPtr, $HWND_BOTTOM, 0, 0, 0, 0, $SWP_NOSIZE -bor $SWP_NOMOVE -bor $SWP_NOACTIVATE -bor $SWP_SHOWWINDOW)
+$result = [User32]::SetWindowPos($hwndPtr, $HWND_BOTTOM, 0, 0, 0, 0, $SWP_NOSIZE -bor $SWP_NOMOVE -bor $SWP_NOACTIVATE)
 
 Write-Host "SetWindowPos result: $result"
 
@@ -98,31 +93,16 @@ if ($result) {
     const scriptPath = path.join(tempDir, `amengui_setbottom_${hwnd}_${Date.now()}.ps1`);
     
     await fs.writeFile(scriptPath, scriptContent, 'utf-8');
-    console.log('Created temp script:', scriptPath);
     
-    let powershellExe = 'powershell';
-    try {
-      await fs.access(PWSH_PATH);
-      powershellExe = `"${PWSH_PATH}"`;
-      console.log('Using built-in PowerShell 7:', PWSH_PATH);
-    } catch {
-      console.log('Built-in PowerShell 7 not found, using system powershell');
-    }
+    // 复用 getPwshPath()：内置 pwsh7 → 系统 pwsh（PATH）→ 系统 powershell，避免硬依赖 PS5
+    const powershellExe = `"${await getPwshPath()}"`;
     
     const command = `${powershellExe} -ExecutionPolicy Bypass -File "${scriptPath}" -hwnd ${hwnd}`;
-    console.log(`Executing command: ${command}`);
     
     const { stdout, stderr } = await execAsync(command);
-    console.log('PowerShell stdout:', stdout);
-    if (stderr) console.log('PowerShell stderr:', stderr);
     
     await fs.unlink(scriptPath);
-    console.log('Cleaned up temp script');
-    
-    console.log(`=== forceWindowToBottom end (success) ===`);
-    
   } catch (error) {
-    console.error(`=== forceWindowToBottom end (failed) ===`);
     console.error('PowerShell execution failed:', error.message);
     console.error('Error code:', error.code);
     if (error.stdout) console.error('Partial stdout:', error.stdout);
@@ -136,25 +116,16 @@ if ($result) {
 async function forceWindowToBottomWithNircmd(hwnd) {
   if (process.platform !== 'win32') return;
   
-  console.log(`=== forceWindowToBottomWithNircmd start ===`);
-  console.log(`hwnd: ${hwnd}`);
-  
   try {
     // 尝试使用 nircmd（如果可用）
     const nircmdPath = 'nircmd.exe';
     const command = `"${nircmdPath}" win settopmost handle ${hwnd} 0`;
-    console.log(`Trying nircmd: ${command}`);
     
     try {
       const { stdout, stderr } = await execAsync(command);
-      console.log('nircmd stdout:', stdout);
-      if (stderr) console.log('nircmd stderr:', stderr);
     } catch (e) {
-      console.log('nircmd not available, skipping');
+      // nircmd 不可用属正常情况，静默跳过
     }
-    
-    console.log(`=== forceWindowToBottomWithNircmd end ===`);
-    
   } catch (error) {
     console.error('forceWindowToBottomWithNircmd failed:', error.message);
   }
@@ -242,25 +213,21 @@ const createWindow = () => {
  */
 async function setWindowToBottom(window = mainWindow) {
   if (!window || window.isDestroyed()) return;
+  // 隐藏中的窗口不处理：置底脚本带 SWP_SHOWWINDOW 标志，会误把 Shell 模式下隐藏的界面重新显示
+  if (!window.isVisible()) return;
   
   try {
-    console.log(`=== setWindowToBottom ===`);
-    
     // 方法1: 通过 PowerShell 调用 Windows API
     const hwnd = window.getNativeWindowHandle();
-    console.log(`hwnd buffer length: ${hwnd.length}`);
-    console.log(`hwnd buffer:`, hwnd);
     
     // 正确获取窗口句柄（兼容 32 位和 64 位系统）
     let hwndNumber;
     if (hwnd.length === 8) {
       // 64 位系统：从 Buffer 读取 64 位整数
       hwndNumber = hwnd.readUInt32LE(0); // 低 32 位就是窗口句柄
-      console.log(`Window handle (64-bit): ${hwndNumber} (0x${hwndNumber.toString(16)})`);
     } else {
       // 32 位系统
       hwndNumber = hwnd.readUInt32LE(0);
-      console.log(`Window handle (32-bit): ${hwndNumber} (0x${hwndNumber.toString(16)})`);
     }
     
     // 调用 PowerShell 脚本
@@ -284,7 +251,6 @@ function forceWindowToBottomDelayed() {
     
     const hwnd = mainWindow.getNativeWindowHandle();
     const hwndNumber = hwnd.readUInt32LE(0); // 正确获取 32 位窗口句柄
-    console.log(`Window handle: 0x${hwndNumber.toString(16)}`);
     
     // 使用 Windows API 强制置底
     forceWindowToBottom(hwndNumber);
@@ -613,7 +579,7 @@ ipcMain.handle('settings:show', async (event, settingsData) => {
     y: Math.floor((height - 520) / 2),
     frame: false,
     fullscreen: false,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     skipTaskbar: false,
     resizable: false,
     icon: iconPath,
@@ -1020,7 +986,7 @@ ipcMain.handle('properties:show', async (event, appData) => {
     y: Math.floor((height - 380) / 2),
     frame: false,
     fullscreen: false,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     skipTaskbar: false,
     resizable: false,
     icon: iconPath,
@@ -1201,6 +1167,56 @@ async function convertAppDataPaths(appData) {
 }
 
 /**
+ * 动态解析 amsys 可执行文件路径：
+ * - 读取 config.ini 中的 amsys 键（支持 Unix 风格，如 amsys=/bin/com.amsys.app/amsys.exe，
+ *   经内嵌路径转换解析为 Windows 路径；也支持直接写 Windows 路径）
+ * - 未配置或路径无效时回退内嵌 amsys（src/amsys/amsys.exe）
+ */
+let amsysPathCache = null;
+
+async function getAmsysPath() {
+  if (amsysPathCache) return amsysPathCache;
+  const embedded = path.join(APP_ROOT, 'src', 'amsys', 'amsys.exe');
+  let resolved = embedded;
+  try {
+    const configContent = await fs.readFile(path.join(APP_ROOT, 'config.ini'), 'utf-8');
+    let configured = null;
+    for (const line of configContent.split(/\r?\n/)) {
+      const m = line.match(/^\s*amsys\s*=\s*(.+?)\s*$/i);
+      if (m) {
+        configured = m[1].trim();
+        break;
+      }
+    }
+    if (configured) {
+      let candidate = configured;
+      if (configured.startsWith('/')) {
+        const converter = await getPathConverter(APP_ROOT);
+        const r = await converter.toWindows(configured);
+        if (r.success && r.winPath) candidate = r.winPath;
+      }
+      await fs.access(candidate);
+      resolved = candidate;
+    }
+  } catch (e) {
+    console.warn('Failed to resolve external amsys, using embedded:', e.message);
+  }
+  amsysPathCache = resolved;
+  console.log('Resolved amsys path:', resolved);
+  return resolved;
+}
+
+/**
+ * 若 exePath 指向内嵌 amsys，则替换为动态解析出的 amsys 路径
+ */
+async function resolveAmsysIfEmbedded(exePath) {
+  if (typeof exePath === 'string' && exePath.replace(/\\/g, '/').toLowerCase().endsWith('src/amsys/amsys.exe')) {
+    return await getAmsysPath();
+  }
+  return exePath;
+}
+
+/**
  * 启动应用程序
  * @param {string} appName - .app 文件名（不含扩展名）
  */
@@ -1226,6 +1242,7 @@ ipcMain.handle('app:launch', async (_, appName) => {
     
     const appDataRaw = await fs.readFile(appPath, 'utf-8');
     const appData = await convertAppDataPaths(JSON.parse(appDataRaw));
+    appData.exePath = await resolveAmsysIfEmbedded(appData.exePath);
     console.log('App config loaded:', appData);
     
     if (!appData.exePath) {
@@ -1236,6 +1253,7 @@ ipcMain.handle('app:launch', async (_, appName) => {
     
     const isTerminal = appData.exePath.toLowerCase().endsWith('cmd.exe') || 
                        appData.exePath.toLowerCase().endsWith('powershell.exe') ||
+                       appData.exePath.toLowerCase().endsWith('pwsh.exe') ||
                        appData.exePath.toLowerCase().endsWith('amsys.exe');
     
     const child = spawn(appData.exePath, appData.args || [], {
@@ -1330,6 +1348,7 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
     
     // 支持 .app 配置中的 Unix 风格路径（/usr、/opt、/mnt/c 等）
     appData = await convertAppDataPaths(appData);
+    appData.exePath = await resolveAmsysIfEmbedded(appData.exePath);
     
     let iconPath = appData.icon;
     
@@ -1502,7 +1521,6 @@ ipcMain.on('lockscreen:unlock', () => {
  *   自动结束 Shell 模式并恢复主界面。
  */
 function startAmsysProcess() {
-  const amsysPath = path.join(APP_ROOT, 'src', 'amsys', 'amsys.exe');
   const scriptPath = path.join(os.tmpdir(), `amengui_shell_${Date.now()}.ps1`);
   const scriptContent = [
     '$proc = Start-Process -FilePath $args[0] -WorkingDirectory $args[1] -PassThru',
@@ -1513,13 +1531,22 @@ function startAmsysProcess() {
   
   fs.writeFile(scriptPath, scriptContent, 'utf-8')
     .then(async () => {
+      const amsysPath = await getAmsysPath();
       const pwsh = await getPwshPath();
+      // 工作目录：外部 amsys 通常与其 config.ini 同目录，优先使用；否则回退项目根
+      let workDir = APP_ROOT;
+      try {
+        await fs.access(path.join(path.dirname(amsysPath), 'config.ini'));
+        workDir = path.dirname(amsysPath);
+      } catch {
+        // 使用默认 APP_ROOT
+      }
       const launcher = spawn(pwsh, [
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', scriptPath,
         amsysPath,
-        APP_ROOT
+        workDir
       ], {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
@@ -1651,6 +1678,11 @@ function exitShellMode() {
 
 ipcMain.handle('control-center:show', async () => {
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    // 开发模式下每次显示都重载窗口，确保加载最新的 control-center.js，
+    // 避免"窗口创建一次后永久复用"导致旧逻辑残留（历史调试陷阱）
+    if (!app.isPackaged) {
+      controlCenterWindow.webContents.reload();
+    }
     controlCenterWindow.show();
     return;
   }
@@ -1677,6 +1709,10 @@ ipcMain.handle('control-center:show', async () => {
   
   controlCenterWindow.setPosition(width - CONTROL_CENTER_WIDTH - 16, height - CONTROL_CENTER_HEIGHT - BOTTOM_MARGIN);
   controlCenterWindow.loadFile(path.join(__dirname, 'control-center.html'));
+  // 开发模式打开 DevTools，便于查看控制中心日志与错误（否则日志打在不可见窗口）
+  if (!app.isPackaged) {
+    controlCenterWindow.webContents.openDevTools({ mode: 'detach' });
+  }
   
   controlCenterWindow.on('closed', () => {
     controlCenterWindow = null;
@@ -1707,13 +1743,75 @@ ipcMain.handle('control-center:resize', async (_, width, height) => {
   return { success: false };
 });
 
+// 已解析的 PowerShell 路径缓存（解析一次即可，全程复用）
+let resolvedPwshPath = null;
+
+/**
+ * 解析可用的 PowerShell 可执行文件，优先级：
+ *   1. config.ini [paths] 节的 pwsh 键（支持便携版/外部 pwsh7：
+ *      Unix 风格路径如 pwsh=/opt/pwsh/pwsh.exe 会经内嵌转换解析，
+ *      也支持 Windows 绝对路径；相对路径按项目根解析）
+ *   2. 内置 PowerShell 7（PowerShell/7/pwsh.exe）
+ *   3. 系统 PATH 上的 pwsh（PowerShell 7）
+ *   4. 系统 Windows PowerShell 5.1（powershell）——仅当 1/2/3 都不存在时才回退，
+ *      避免在未安装 PS5 的环境（Nano Server / 精简 PE / 仅装 pwsh7 的机器）下报错
+ * 返回裸可执行名/路径（供 spawn 使用，非 cmd 引用串）。
+ */
 async function getPwshPath() {
+  if (resolvedPwshPath) return resolvedPwshPath;
+
+  // 1. config.ini 中显式配置的 pwsh 路径（便携版/外部 pwsh7，优先于一切内置路径）
+  try {
+    const configContent = await fs.readFile(path.join(APP_ROOT, 'config.ini'), 'utf-8');
+    for (const line of configContent.split(/\r?\n/)) {
+      const m = line.match(/^\s*pwsh\s*=\s*(.+?)\s*$/i);
+      if (!m) continue;
+      let candidate = m[1].trim();
+      if (!candidate) continue;
+      if (candidate.startsWith('/')) {
+        // Unix 风格路径：经内嵌转换解析为 Windows 路径
+        const converter = await getPathConverter(APP_ROOT);
+        const r = await converter.toWindows(candidate);
+        if (r.success && r.winPath) candidate = r.winPath;
+      } else if (!path.isAbsolute(candidate)) {
+        // 相对路径按项目根解析
+        candidate = path.resolve(APP_ROOT, candidate);
+      }
+      try {
+        await fs.access(candidate);
+        resolvedPwshPath = candidate;
+        console.log('Resolved pwsh path (config.ini):', resolvedPwshPath);
+        return resolvedPwshPath;
+      } catch {
+        console.warn(`[pwsh] config.ini 配置的 pwsh 路径无效，忽略: ${candidate}`);
+      }
+    }
+  } catch { /* config.ini 不存在或不可读，继续内置路径 */ }
+
+  // 2. 内置 pwsh7
   try {
     await fs.access(PWSH_PATH);
-    return PWSH_PATH;
-  } catch {
-    return 'powershell';
-  }
+    resolvedPwshPath = PWSH_PATH;
+    return resolvedPwshPath;
+  } catch { /* 继续尝试系统 pwsh */ }
+
+  // 3. 系统 PATH 上的 pwsh（仅当确实能找到时才采用，避免误伤仅装 PS5 的机器）
+  try {
+    const r = spawnSync('where', ['pwsh'], { encoding: 'utf8', windowsHide: true });
+    const hit = String(r.stdout || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find((s) => s && /\.exe$/i.test(s));
+    if (hit) {
+      resolvedPwshPath = hit;
+      return resolvedPwshPath;
+    }
+  } catch { /* 继续回退 */ }
+
+  // 4. 回退系统 Windows PowerShell 5.1（最后手段，仅提示一次）
+  resolvedPwshPath = 'powershell';
+  console.warn('[pwsh] 未找到配置/内置/系统 pwsh，回退到系统 powershell（5.1）');
+  return resolvedPwshPath;
 }
 
 /**
@@ -1838,11 +1936,8 @@ async function getCapabilities(force = false) {
   // 探测失败时按"可用"处理（UI 仍尝试），仅显式返回 false 才禁用
   const caps = {
     audio: !(audioRes && audioRes.audio === false),
-    network: !(sysRes && sysRes.network === false),
-    bluetooth: !(sysRes && sysRes.bluetooth === false),
     brightness: !(sysRes && sysRes.brightness === false),
-    flightMode: !(sysRes && sysRes.flightMode === false),
-    nightMode: !(sysRes && sysRes.nightMode === false),
+    isLaptop: !!(sysRes && sysRes.isLaptop),
   };
   capabilitiesCache = caps;
   capabilitiesCacheAt = now;
@@ -1974,14 +2069,6 @@ ipcMain.handle('system:setBrightness', async (_, brightness) => {
   }
 });
 
-ipcMain.handle('system:toggleNetwork', async () => {
-  try {
-    return await sysServer.command('networkToggle', [], 20000);
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-});
-
 ipcMain.handle('system:toggleBluetooth', async () => {
   try {
     return await sysServer.command('bluetoothToggle', [], 20000);
@@ -1992,17 +2079,35 @@ ipcMain.handle('system:toggleBluetooth', async () => {
 
 ipcMain.handle('system:toggleFlightMode', async () => {
   try {
-    return await sysServer.command('flightToggle', [], 15000);
+    // 切换需轮询等待全部无线电状态收敛（最长 15 秒），给足超时
+    return await sysServer.command('flightToggle', [], 40000);
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
 
-ipcMain.handle('system:toggleNightMode', async () => {
+ipcMain.handle('system:getFlightStatus', async () => {
   try {
-    return await sysServer.command('nightToggle', [], 15000);
+    return await sysServer.command('flightStatus', [], 15000);
   } catch (e) {
-    return { success: false, error: e.message };
+    return { success: false, enabled: null, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getHotspotStatus', async () => {
+  try {
+    return await sysServer.command('hotspotStatus', [], 15000);
+  } catch (e) {
+    return { success: false, enabled: null, error: e.message };
+  }
+});
+
+ipcMain.handle('system:toggleHotspot', async () => {
+  try {
+    // 切换最长需轮询等待状态收敛（约 1~30 秒），给足超时
+    return await sysServer.command('hotspotToggle', [], 40000);
+  } catch (e) {
+    return { success: false, enabled: null, error: e.message };
   }
 });
 
@@ -2016,7 +2121,9 @@ ipcMain.handle('system:getWifiStatus', async () => {
 
 ipcMain.handle('system:setWifiPower', async (_, enabled) => {
   try {
-    return await sysServer.command('wifiPower', [!!enabled], 15000);
+    // wlanapi 无线电状态切换；驱动异步生效（开启可能需约 10~30 秒），
+    // sys.ps1 内部轮询等待收敛（最长 35 秒），这里给足超时
+    return await sysServer.command('wifiPower', [!!enabled], 60000);
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -2062,19 +2169,62 @@ ipcMain.handle('system:getBluetoothStatus', async () => {
   }
 });
 
-ipcMain.handle('system:connectBluetoothDevice', async (_, instanceId) => {
+ipcMain.handle('system:connectBluetoothDevice', async (_, address) => {
   try {
-    return await sysServer.command('btConnect', [String(instanceId || '')], 15000);
+    return await sysServer.command('btConnect', [String(address || '')], 20000);
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
 
-ipcMain.handle('system:disconnectBluetoothDevice', async (_, instanceId) => {
+ipcMain.handle('system:disconnectBluetoothDevice', async (_, address) => {
   try {
-    return await sysServer.command('btDisconnect', [String(instanceId || '')], 15000);
+    return await sysServer.command('btDisconnect', [String(address || '')], 20000);
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
+
+ipcMain.handle('system:discoverBluetoothDevices', async () => {
+  try {
+    // 蓝牙查询（inquiry）约 4~10 秒，给足超时
+    return await sysServer.command('btDiscover', [], 40000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:pairBluetoothDevice', async (_, address, pin) => {
+  try {
+    // 配对为同步阻塞操作（自动尝试常用码或等待用户配对码），给足超时
+    return await sysServer.command('btPair', [String(address || ''), String(pin || '')], 60000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:unpairBluetoothDevice', async (_, address) => {
+  try {
+    return await sysServer.command('btUnpair', [String(address || '')], 20000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getBluetoothDeviceInfo', async (_, address) => {
+  try {
+    return await sysServer.command('btInfo', [String(address || '')], 20000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:forgetWifi', async (_, ssid) => {
+  try {
+    return await sysServer.command('wifiForget', [String(ssid || '')], 20000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 

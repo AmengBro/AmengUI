@@ -5,7 +5,7 @@
 
 ## 界面
 
-- 深炭黑 `#191919` 圆角单窗口，自定义标题栏（左侧下载图标，右侧 最小化 关闭）；
+- 深炭黑 `#191919` 圆角单窗口，自定义标题栏（左侧 pacman 图标，右侧 ☰ 菜单、最小化、关闭）；
 - 单窗口多视图：首页（拖拽 / 选择文件）→ 安装预览 → 解压日志页（可折叠）；
 - 三种安装模式自动识别：全新安装、同版本重新安装、新版本更新（降级显示"安装旧版本"）；
 - 蓝色圆角外边框是可操作按钮的选中标识；卸载按钮按规格为灰色禁用；
@@ -36,6 +36,9 @@ pacman.exe D:\path\to\app.aup                # 直接载入 .aup 并进入安装
 - 「选择文件」打开内置文件选择器（Win32 风格：地址栏 + 文件列表 + 上一级/取消/打开）；
 - 载入包后按版本自动进入 安装 / 重新安装 / 更新 / 安装旧版本 页面。
 
+标题栏 ☰ 菜单里有「自动关联 .aup 文件」开关：开启后每次启动 pacman 都会把 `.aup`
+后缀绑定为用 pacman 打开（写入 `HKCU\Software\Classes`，无需管理员权限），关闭则自动解绑。
+
 文件选择器的目录/文件路径一律来自 amsys：进入每层目录都用
 `amsys.exe --pipe` 的 `resolve` 取该目录的 Windows 绝对路径，再用 Windows
 文件 API 枚举；只有选定 `.aup` 时才由 amsys 解析该文件的绝对路径并开始解析。
@@ -47,15 +50,19 @@ pacman.exe D:\path\to\app.aup                # 直接载入 .aup 并进入安装
 ```ini
 ; pacman.ini — 包管理器配置（UTF-8 编码）
 ; 留空则自动探测；apm 默认与 amsys 同 root（root\bin\apm.exe）
+; apm / sevenzip 支持 Unix 风格（如 /bin/apm.exe），会自动经 amsys 转换
 [paths]
 amsys = D:\Codewhale\workspace\amsys\amsys.exe
 apm =
 sevenzip =
+
+[settings]
+assoc_aup = false
 ```
 
 - `amsys`：amsys.exe 路径。留空时按 apm 的策略自动定位（程序目录向上两级 + PATH，优先能加载 config.ini 的那个）。
-- `apm`：apm.exe 路径。留空时默认取 `{amsys目录}\root\bin\apm.exe`（即与 amsys 同 root），再退回 `root\usr\bin` 和 PATH。
-- `sevenzip`：7z.exe 路径。留空时通过 amsys 管道 `resolve /bin/7z/7z.exe` 解析，不硬编码。
+- `apm`：apm.exe 路径，支持 Windows 绝对路径或 Unix 风格（如 `/bin/apm.exe`，自动经 amsys 转成 Windows 路径）。留空时默认取 `{amsys目录}\root\bin\apm.exe`（即与 amsys 同 root），再退回 `root\usr\bin` 和 PATH。
+- `sevenzip`：7z.exe 路径，同样支持 Unix 风格（如 `/bin/7z/7z.exe`）。留空时通过 amsys 管道 `resolve /bin/7z/7z.exe` 解析，不硬编码。
 
 amsys 虚拟根从 `amsys.exe` 旁的 `config.ini` 的 `[system] root` 读取（缺省为 `{amsys目录}\root`）。
 

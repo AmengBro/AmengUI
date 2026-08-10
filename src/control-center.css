@@ -4,6 +4,11 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   font-family: 'Segoe UI', 'Microsoft YaHei UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   background: transparent;
@@ -100,6 +105,19 @@ body {
 
 .setting-btn.active .setting-icon {
   color: #4cc2ff;
+}
+
+.setting-btn.off {
+  background: rgba(255, 92, 92, 0.28);
+}
+
+.setting-btn.off .setting-icon {
+  color: rgba(255, 150, 150, 0.95);
+}
+
+.setting-btn.off .setting-label,
+.setting-btn.off .setting-value {
+  color: rgba(255, 180, 180, 0.9);
 }
 
 .setting-btn.loading {
@@ -254,6 +272,16 @@ body {
   width: 15px;
   height: 15px;
   color: rgba(255, 255, 255, 0.75);
+}
+
+/* 主视图音量静音按钮状态 */
+#btn-volume-mute.muted svg {
+  color: #ff6b6b;
+}
+
+#btn-volume-mute.busy {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .battery-section {
@@ -541,6 +569,167 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.mixer-error span {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.link-text {
+  color: #4cc2ff;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.network-op-status {
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
+  word-break: break-all;
+}
+
+.network-op-status.error {
+  color: #ff6b6b;
+}
+
+/* ===== 右键菜单 ===== */
+.context-menu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 150px;
+  background: rgba(38, 38, 42, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.context-menu-item {
+  padding: 7px 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.context-menu-item.danger {
+  color: #ff6b6b;
+}
+
+.context-menu-item.danger:hover {
+  background: rgba(255, 80, 80, 0.15);
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 6px;
+}
+
+/* ===== 弹窗 ===== */
+.cc-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4000;
+}
+
+.cc-modal-box {
+  width: 270px;
+  max-width: calc(100vw - 40px);
+  background: rgba(42, 42, 46, 0.99);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+.cc-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.cc-modal-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  word-break: break-all;
+}
+
+.cc-modal-input {
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 12px;
+  padding: 0 8px;
+  outline: none;
+}
+
+.cc-modal-input:focus {
+  border-color: var(--accent-color, #0078D4);
+}
+
+.cc-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.cc-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cc-modal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cc-modal-row .k {
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.cc-modal-row .v {
+  color: rgba(255, 255, 255, 0.92);
+  text-align: right;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.btn-danger {
+  background: rgba(255, 80, 80, 0.75);
+}
+
+.btn-danger:hover {
+  background: rgba(255, 80, 80, 0.9);
+}
+
+.btn-show-all {
+  width: 100%;
+  flex-shrink: 0;
+}
+
 /* ===== 网络 / 蓝牙选择视图 ===== */
 .net-status-card {
   display: flex;
@@ -627,6 +816,25 @@ body {
 .toggle-switch:disabled {
   opacity: 0.5;
   pointer-events: none;
+}
+
+.toggle-switch.loading {
+  pointer-events: none;
+}
+
+.toggle-switch.loading::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  z-index: 2;
 }
 
 .section-title {
@@ -747,6 +955,10 @@ body {
 
 .status-text.status-error {
   color: #f28b82;
+}
+
+.status-text.status-unpaired {
+  color: #f7b955;
 }
 
 .password-box {

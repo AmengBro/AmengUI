@@ -44,12 +44,12 @@
         </div>
 
         <div class="settings-grid">
-          <button class="setting-btn" id="btn-night-mode" title="夜间模式">
+          <button class="setting-btn" id="btn-hotspot" title="移动热点">
             <svg viewBox="0 0 24 24" fill="currentColor" class="setting-icon">
-              <path d="M12 3a6 6 0 0 0-9 9c0 2.38 1.19 4.47 3 5.74V17a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v1.74c1.81-1.27 3-3.36 3-5.74a6 6 0 0 0-9-9z"/>
+              <path d="M12 11c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 2c0-3.31-2.69-6-6-6s-6 2.69-6 6c0 2.22 1.21 4.15 3 5.19l1-1.74c-1.19-.7-2-1.97-2-3.45 0-2.21 1.79-4 4-4s4 1.79 4 4c0 1.48-.81 2.75-2 3.45l1 1.74c1.79-1.04 3-2.97 3-5.19zM12 3C6.48 3 2 7.48 2 13c0 3.7 2.01 6.92 4.99 8.65l1-1.73C5.61 18.53 4 15.96 4 13c0-4.42 3.58-8 8-8s8 3.58 8 8c0 2.96-1.61 5.53-4 6.92l1 1.73c2.99-1.73 5-4.95 5-8.65 0-5.52-4.48-10-10-10z"/>
             </svg>
-            <span class="setting-label">夜间模式</span>
-            <span class="setting-value" id="night-mode-value">…</span>
+            <span class="setting-label">移动热点</span>
+            <span class="setting-value" id="hotspot-value">…</span>
           </button>
         </div>
 
@@ -77,6 +77,11 @@
             <div class="slider-container">
               <input type="range" id="volume-slider" min="0" max="100" value="50" class="slider">
               <span class="slider-value" id="volume-value">50%</span>
+              <button id="btn-volume-mute" class="mixer-btn" title="静音/取消静音" aria-label="静音/取消静音">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                </svg>
+              </button>
               <button id="btn-volume-mixer" class="mixer-btn" title="打开自制音量合成器面板" aria-label="打开自制音量合成器面板">
                 <svg viewBox="0 0 24 24" fill="currentColor">
                   <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/>
@@ -156,12 +161,13 @@
           <span class="net-status-title" id="network-status-title">正在获取状态…</span>
           <span class="net-status-sub" id="network-status-sub">—</span>
         </div>
-        <button class="toggle-switch" id="btn-wifi-power" title="WiFi 开关"></button>
+        <button class="toggle-switch" id="btn-wifi-power" title="WiFi 开关（控制软件无线电，与 Windows 系统开关等效；不会禁用网卡）"></button>
       </div>
 
       <div class="section-title">可用网络</div>
       <div id="wifi-list" class="sessions-list"></div>
       <div id="network-error" class="mixer-error hidden"></div>
+      <div id="network-op-status" class="network-op-status hidden"></div>
     </div>
 
     <!-- 蓝牙选择视图 -->
@@ -193,11 +199,52 @@
         <button class="toggle-switch" id="btn-bt-power" title="蓝牙开关"></button>
       </div>
 
-      <div class="section-title">已配对设备</div>
+      <div class="section-title" id="bluetooth-section-title">已配对设备</div>
       <div id="bluetooth-list" class="sessions-list"></div>
       <div id="bluetooth-error" class="mixer-error hidden"></div>
+      <div id="bluetooth-op-status" class="network-op-status hidden"></div>
+      <button id="btn-bt-show-all" class="btn-small btn-show-all">显示所有设备</button>
     </div>
   </div>
+
+  <!-- 右键菜单 -->
+  <div id="context-menu" class="context-menu hidden"></div>
+
+  <!-- 通用确认弹窗 -->
+  <div id="confirm-modal" class="cc-modal hidden">
+    <div class="cc-modal-box">
+      <span id="confirm-modal-title" class="cc-modal-title"></span>
+      <div class="cc-modal-actions">
+        <button id="confirm-modal-cancel" class="btn-small">取消</button>
+        <button id="confirm-modal-ok" class="btn-small btn-danger">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 配对码弹窗 -->
+  <div id="pair-modal" class="cc-modal hidden">
+    <div class="cc-modal-box">
+      <span class="cc-modal-title">输入配对码</span>
+      <span id="pair-modal-device" class="cc-modal-sub"></span>
+      <input id="pair-modal-input" class="cc-modal-input" type="password" placeholder="配对码（如 0000）">
+      <div class="cc-modal-actions">
+        <button id="pair-modal-cancel" class="btn-small">取消</button>
+        <button id="pair-modal-ok" class="btn-small">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 属性弹窗 -->
+  <div id="props-modal" class="cc-modal hidden">
+    <div class="cc-modal-box">
+      <span id="props-modal-title" class="cc-modal-title"></span>
+      <div id="props-modal-body" class="cc-modal-body"></div>
+      <div class="cc-modal-actions">
+        <button id="props-modal-close" class="btn-small">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <script src="control-center.js"></script>
 </body>
 </html>

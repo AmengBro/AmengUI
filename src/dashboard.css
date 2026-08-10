@@ -665,7 +665,7 @@ body.theme-bright .desktop-app.dragging {
   border-radius: 8px;
   padding: 4px;
   min-width: 160px;
-  z-index: 1000;
+  z-index: 3000;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -684,11 +684,6 @@ body.theme-bright .desktop-app.dragging {
 
 .context-menu-item:hover {
   background: rgba(255, 255, 255, 0.1);
-}
-
-.context-menu-item-disabled {
-  opacity: 0.5;
-  pointer-events: none;
 }
 
 .context-menu-icon {

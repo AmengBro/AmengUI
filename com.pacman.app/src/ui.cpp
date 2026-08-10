@@ -22,7 +22,9 @@
 
 namespace {
 
-const Fl_Color C_BG         = fl_rgb_color(0x19, 0x19, 0x19);
+const char* kAppVersion = "1.0.1.0";
+
+const Fl_Color C_BG         = fl_rgb_color(0x1e, 0x1e, 0x1e);
 const Fl_Color C_PANEL      = fl_rgb_color(0x24, 0x24, 0x24);
 const Fl_Color C_BTN        = fl_rgb_color(0x3c, 0x3c, 0x3c);
 const Fl_Color C_BTN_DIS    = fl_rgb_color(0x26, 0x26, 0x26);
@@ -34,6 +36,7 @@ const Fl_Color C_BLUE       = fl_rgb_color(0x3d, 0x9b, 0xff);
 const Fl_Color C_ACCENT     = fl_rgb_color(0x00, 0x78, 0xd4);
 const Fl_Color C_TRACK      = fl_rgb_color(0x33, 0x33, 0x33);
 const Fl_Color C_HOVER      = fl_rgb_color(0x4a, 0x4a, 0x4a);
+const Fl_Color C_MENU       = fl_rgb_color(0x2e, 0x2e, 0x2e);
 const Fl_Color C_DASH       = fl_rgb_color(0x55, 0x55, 0x55);
 const Fl_Color C_ICON_GRAY  = fl_rgb_color(0x8a, 0x8a, 0x8a);
 const Fl_Color C_LOG_TEXT   = fl_rgb_color(0xc8, 0xc8, 0xc8);
@@ -335,6 +338,62 @@ private:
     bool hover_ = false;
 };
 
+// 自绘汉堡菜单按钮（三条横线，避免 ☰ 字形渲染不完整）
+class HamburgerButton : public Fl_Button {
+public:
+    HamburgerButton(int x, int y, int w, int h) : Fl_Button(x, y, w, h, nullptr) {
+        box(FL_FLAT_BOX);
+        color(C_MENU);
+    }
+
+    int handle(int ev) override {
+        if (ev == FL_ENTER) { hover_ = true; redraw(); return 1; }
+        if (ev == FL_LEAVE) { hover_ = false; redraw(); return 1; }
+        return Fl_Button::handle(ev);
+    }
+
+    void draw() override {
+        fl_draw_box(FL_FLAT_BOX, x(), y(), w(), h(), hover_ ? C_HOVER : C_BG);
+        fl_color(active_r() ? C_TEXT : C_MUTED);
+        int cx = x() + w() / 2;
+        int cy = y() + h() / 2;
+        int lw = 13;
+        fl_rectf(cx - lw / 2, cy - 8, lw, 3);
+        fl_rectf(cx - lw / 2, cy - 1, lw, 3);
+        fl_rectf(cx - lw / 2, cy + 6, lw, 3);
+    }
+
+private:
+    bool hover_ = false;
+};
+
+// Deepin 风格开关：圆角轨道 + 圆形滑块
+class ToggleSwitch : public Fl_Widget {
+public:
+    ToggleSwitch(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) { box(FL_NO_BOX); }
+
+    bool on = false;
+
+    int handle(int ev) override {
+        if (ev == FL_PUSH && Fl::event_button() == 1) {
+            if (!active_r()) return 1;
+            on = !on;
+            redraw();
+            do_callback();
+            return 1;
+        }
+        return 0;
+    }
+
+    void draw() override {
+        fl_draw_box(FL_ROUNDED_BOX, x(), y(), w(), h(), on ? C_ACCENT : C_TRACK);
+        int k = h() - 8;
+        int kx = on ? x() + w() - k - 4 : x() + 4;
+        fl_color(C_TEXT);
+        fl_pie(kx, y() + 4, k, k, 0.0, 360.0);
+    }
+};
+
 class IconWidget : public Fl_Widget {
 public:
     IconWidget(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {}
@@ -453,6 +512,9 @@ PacmanWindow::PacmanWindow()
             new DownloadGlyph(16, 11, 22, 22);  // 回退：自绘下载方块
         }
     }
+
+    hamburger_ = new HamburgerButton(440 - 112, 8, 28, 28);
+    hamburger_->callback(hamburger_cb, this);
 
     minBtn_ = new DeepButton(440 - 76, 8, 28, 28, "—", DeepButton::Icon);
     minBtn_->callback(min_cb, this);
@@ -589,6 +651,66 @@ PacmanWindow::PacmanWindow()
     browseOpenBtn_->deactivate();
     browseOpenBtn_->hide();
 
+    // 菜单覆盖页（汉堡菜单）：覆盖整个内容区
+    menuPanel_ = new Fl_Box(0, 44, 440, 336);
+    menuPanel_->box(FL_FLAT_BOX);
+    menuPanel_->color(C_MENU);
+    menuPanel_->hide();
+
+    menuTitle_ = new Fl_Box(24, 60, 120, 26, "菜单");
+    menuTitle_->box(FL_NO_BOX);
+    menuTitle_->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+    menuTitle_->labelfont(FL_HELVETICA);
+    menuTitle_->labelsize(16);
+    menuTitle_->labelcolor(C_TEXT);
+    menuTitle_->hide();
+
+    Fl_Box* assocLabel = new Fl_Box(24, 116, 260, 28, "自动关联 .aup 文件");
+    assocLabel->box(FL_NO_BOX);
+    assocLabel->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+    assocLabel->labelfont(FL_HELVETICA);
+    assocLabel->labelsize(14);
+    assocLabel->labelcolor(C_TEXT);
+    assocLabel->hide();
+
+    assocSwitch_ = new ToggleSwitch(336, 117, 72, 26);
+    assocSwitch_->callback(assoc_switch_cb, this);
+    assocSwitch_->hide();
+
+    assocHint_ = new Fl_Box(24, 146, 392, 18, "开启后，双击 .aup 文件将直接用包管理器打开");
+    assocHint_->box(FL_NO_BOX);
+    assocHint_->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+    assocHint_->labelfont(FL_HELVETICA);
+    assocHint_->labelsize(12);
+    assocHint_->labelcolor(C_SECONDARY);
+    assocHint_->hide();
+
+    Fl_Box* menuDivider = new Fl_Box(24, 190, 392, 1);
+    menuDivider->box(FL_FLAT_BOX);
+    menuDivider->color(C_DASH);
+    menuDivider->hide();
+
+    Fl_Box* menuAppName = new Fl_Box(24, 216, 200, 26, "包管理器");
+    menuAppName->box(FL_NO_BOX);
+    menuAppName->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+    menuAppName->labelfont(FL_HELVETICA);
+    menuAppName->labelsize(14);
+    menuAppName->labelcolor(C_TEXT);
+    menuAppName->hide();
+
+    menuVersion_ = new Fl_Box(24, 244, 260, 18, "");
+    menuVersion_->box(FL_NO_BOX);
+    menuVersion_->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+    menuVersion_->labelfont(FL_HELVETICA);
+    menuVersion_->labelsize(12);
+    menuVersion_->labelcolor(C_MUTED);
+    menuVersion_->copy_label((std::string("版本 ") + kAppVersion).c_str());
+    menuVersion_->hide();
+
+    menuBackBtn_ = new DeepButton(160, 318, 120, 34, "返回", DeepButton::Plain);
+    menuBackBtn_->callback(hamburger_cb, this);
+    menuBackBtn_->hide();
+
     end();
     resizable(nullptr);
 
@@ -597,6 +719,9 @@ PacmanWindow::PacmanWindow()
         homeStatus_->label(paths_.error.c_str());
         homeStatus_->show();
     }
+
+    // 启动时按开关绑定/解绑 .aup 文件关联
+    applyAupAssociation(paths_.assocAup);
 }
 
 PacmanWindow::~PacmanWindow() {
@@ -708,6 +833,88 @@ void PacmanWindow::done_cb(Fl_Widget*, void* d) { ((PacmanWindow*)d)->finishDone
 
 void PacmanWindow::choose_cb(Fl_Widget*, void* d) { ((PacmanWindow*)d)->showBrowse(); }
 
+void PacmanWindow::hamburger_cb(Fl_Widget*, void* d) {
+    auto* w = (PacmanWindow*)d;
+    if (w->busy_) return;
+    w->showMenuOverlay(w->view_ != View::Menu);
+}
+
+void PacmanWindow::assoc_switch_cb(Fl_Widget*, void* d) {
+    ((PacmanWindow*)d)->toggleAssocAup();
+}
+
+void PacmanWindow::toggleAssocAup() {
+    bool on = !paths_.assocAup;
+    paths_.assocAup = on;
+    saveAssocAup(paths_, on);
+    applyAupAssociation(on);
+    if (assocSwitch_) {
+        assocSwitch_->on = on;
+        assocSwitch_->redraw();
+    }
+}
+
+void PacmanWindow::showMenuOverlay(bool open) {
+    if (open) {
+        if (busy_) return;
+        viewBeforeMenu_ = view_;
+        view_ = View::Menu;
+
+        // 隐藏所有页面控件
+        homeIcon_->hide();
+        homeHint_->hide();
+        dashLine_->hide();
+        chooseBtn_->hide();
+        homeStatus_->hide();
+        pkgIcon_->hide();
+        pkgName_->hide();
+        pkgVersion_->hide();
+        pkgDesc_->hide();
+        warnBox_->hide();
+        uninstallBtn_->hide();
+        mainBtn_->hide();
+        toggleLogBtn_->hide();
+        logView_->hide();
+        progress_->hide();
+        finishBox_->hide();
+        doneBtn_->hide();
+        cleaningSpinner_->hide();
+        cleaningLabel_->hide();
+        browseAddr_->hide();
+        browseList_->hide();
+        browseUpBtn_->hide();
+        browseCancelBtn_->hide();
+        browseOpenBtn_->hide();
+
+        assocSwitch_->on = paths_.assocAup;
+        menuPanel_->show();
+        menuTitle_->show();
+        assocSwitch_->show();
+        assocHint_->show();
+        menuVersion_->show();
+        menuBackBtn_->show();
+        redraw();
+    } else {
+        hideMenuOverlay();
+        switch (viewBeforeMenu_) {
+            case View::Preview: showPreview(); break;
+            case View::Log: showLog(logExpanded_); break;
+            case View::Browse: showBrowse(); break;
+            default: showHome(); break;
+        }
+    }
+}
+
+void PacmanWindow::hideMenuOverlay() {
+    if (!menuPanel_) return;
+    menuPanel_->hide();
+    menuTitle_->hide();
+    assocSwitch_->hide();
+    assocHint_->hide();
+    menuVersion_->hide();
+    menuBackBtn_->hide();
+}
+
 void PacmanWindow::browse_up_cb(Fl_Widget*, void* d) {
     auto* w = (PacmanWindow*)d;
     w->browseGoUp();
@@ -730,6 +937,7 @@ void PacmanWindow::browse_list_cb(Fl_Widget*, void* d) {
 
 void PacmanWindow::showHome() {
     view_ = View::Home;
+    hideMenuOverlay();
     homeIcon_->show();
     homeHint_->show();
     dashLine_->show();
@@ -758,6 +966,7 @@ void PacmanWindow::showHome() {
 
 void PacmanWindow::showPreview() {
     view_ = View::Preview;
+    hideMenuOverlay();
 
     // 图标：包内与 icon/exe 同名的文件，否则默认图标
     std::string cand;
@@ -834,6 +1043,7 @@ void PacmanWindow::showPreview() {
 
 void PacmanWindow::showLog(bool expanded) {
     view_ = View::Log;
+    hideMenuOverlay();
     logExpanded_ = expanded;
     toggleLogBtn_->label(expanded ? "⌃ 收起" : "⌄ 显示详细信息");
     if (finished_) {
@@ -1123,6 +1333,7 @@ void PacmanWindow::finishDone() {
 
 void PacmanWindow::showCleaning() {
     view_ = View::Cleaning;
+    hideMenuOverlay();
     cleaning_ = true;
     busy_ = true;          // 清理期间忽略新拖放
     setBusy(true);         // 禁用关闭/最小化等按钮
@@ -1188,6 +1399,7 @@ void PacmanWindow::closeAfterCleanup() {
 void PacmanWindow::showBrowse() {
     if (busy_) return;
     view_ = View::Browse;
+    hideMenuOverlay();
 
     homeIcon_->hide();
     homeHint_->hide();
@@ -1353,12 +1565,16 @@ void PacmanWindow::setBusy(bool on) {
     if (on) {
         closeBtn_->deactivate();
         minBtn_->deactivate();
+        hamburger_->deactivate();
+        hamburger_->hide();
         chooseBtn_->deactivate();
         uninstallBtn_->deactivate();
         mainBtn_->deactivate();
     } else {
         closeBtn_->activate();
         minBtn_->activate();
+        hamburger_->activate();
+        hamburger_->show();
         chooseBtn_->activate();
         uninstallBtn_->activate();
         mainBtn_->activate();

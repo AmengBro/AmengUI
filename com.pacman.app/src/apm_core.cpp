@@ -1,7 +1,9 @@
+#define _WIN32_WINNT 0x0600
 #include "apm_core.h"
 #include "amsys_client.h"
 
 #include <windows.h>
+#include <shlobj.h>
 #include <shellapi.h>
 
 #include <algorithm>
@@ -105,6 +107,7 @@ struct PacmanConfig {
     std::string amsys;
     std::string apm;
     std::string sevenzip;
+    bool assocAup = false;
 };
 
 std::string exeDir() {
@@ -123,7 +126,7 @@ bool isDirectoryUtf8(const std::string& p) {
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-// 读取 pacman.ini 的 [paths] 节（amsys / apm / sevenzip）
+// 读取 pacman.ini（[paths] + [settings]）
 PacmanConfig readPacmanConfig(const std::string& path) {
     PacmanConfig c;
     std::string text;
@@ -147,22 +150,37 @@ PacmanConfig readPacmanConfig(const std::string& path) {
             if (key == "amsys") c.amsys = val;
             else if (key == "apm") c.apm = val;
             else if (key == "sevenzip" || key == "7z") c.sevenzip = val;
+        } else if (section == "settings") {
+            if (key == "assoc_aup")
+                c.assocAup = (val == "1" || val == "true" || val == "yes" ||
+                              val == "on");
         }
     }
     return c;
 }
 
-// 首次运行自动生成 pacman.ini（已有文件不覆盖）
-void ensureConfigFile(const std::string& path, const std::string& amsysExe) {
-    if (fileExists(path)) return;
+// 写入 pacman.ini（保留 paths 原始写法）
+void writePacmanConfig(const std::string& path, const PacmanConfig& c) {
     std::string text =
         "; pacman.ini — 包管理器配置（UTF-8 编码）\n"
         "; 留空则自动探测；apm 默认与 amsys 同 root（root\\bin\\apm.exe）\n"
+        "; apm / sevenzip 支持 Unix 风格（如 /bin/apm.exe），会自动经 amsys 转换\n"
         "[paths]\n"
-        "amsys = " + amsysExe + "\n"
-        "apm =\n"
-        "sevenzip =\n";
+        "amsys = " + c.amsys + "\n"
+        "apm = " + c.apm + "\n"
+        "sevenzip = " + c.sevenzip + "\n"
+        "\n"
+        "[settings]\n"
+        "assoc_aup = " + (c.assocAup ? "true" : "false") + "\n";
     writeTextFileUtf8(path, text);
+}
+
+// 首次运行自动生成 pacman.ini（已有文件不覆盖）
+void ensureConfigFile(const std::string& path, const std::string& amsysExe) {
+    if (fileExists(path)) return;
+    PacmanConfig c;
+    c.amsys = amsysExe;
+    writePacmanConfig(path, c);
 }
 
 // 自动定位 amsys.exe（同 apm 策略：本级/上级/上上级/PATH，优先带 config.ini）
@@ -343,9 +361,20 @@ ApmPaths findApmPaths() {
     std::string dir = exeDir();
     p.configFile = dir + "\\pacman.ini";
 
-    // amsys：pacman.ini → 自动定位
+    // Windows 风格路径若写成正斜杠（D:/x/y），统一转成反斜杠
+    auto normalizeWin = [](std::string v) {
+        if (v.size() >= 2 && v[1] == ':')
+            for (auto& c : v) if (c == '/') c = '\\';
+        return v;
+    };
+
+    // amsys：pacman.ini → 自动定位（入口必须是 Windows 绝对路径）
     PacmanConfig cfg = readPacmanConfig(p.configFile);
-    std::string amsys = cfg.amsys;
+    p.cfgAmsys = cfg.amsys;      // 保留原始写法（Unix 风格等）
+    p.cfgApm = cfg.apm;
+    p.cfgSevenzip = cfg.sevenzip;
+    p.assocAup = cfg.assocAup;
+    std::string amsys = normalizeWin(cfg.amsys);
     if (!amsys.empty() && isDirectoryUtf8(amsys)) amsys += "\\amsys.exe";
     if (amsys.empty()) {
         // 已知项目默认位置优先（首个自动生成的配置会写这里，用户可再改）
@@ -362,9 +391,23 @@ ApmPaths findApmPaths() {
     p.amsysExe = amsys;
     std::string amsysDir = dirname(amsys);
 
-    // apm：pacman.ini → 默认与 amsys 同 root（root\bin\apm.exe）→ PATH
+    // amsys 管道：把 Unix 风格路径（/bin/apm.exe 等）转成 Windows 绝对路径
+    AmsysPipe amsysClient(amsys);
+    auto resolveUnix = [&](const std::string& unixPath) {
+        return amsysClient.ok() ? amsysClient.resolve(unixPath) : std::string();
+    };
+
+    // apm：pacman.ini（Windows 或 Unix 风格）→ 默认与 amsys 同 root → PATH
     std::string apm = cfg.apm;
-    if (!apm.empty() && isDirectoryUtf8(apm)) apm += "\\apm.exe";
+    if (!apm.empty()) {
+        if (apm[0] == '/') {
+            std::string win = resolveUnix(apm);
+            if (!win.empty()) apm = win;  // 解析失败则保留原值，稍后检查会报错
+        } else {
+            apm = normalizeWin(apm);
+            if (isDirectoryUtf8(apm)) apm += "\\apm.exe";
+        }
+    }
     if (apm.empty()) apm = amsysDir + "\\root\\bin\\apm.exe";
     if (!fileExists(apm)) apm = amsysDir + "\\root\\usr\\bin\\apm.exe";
     if (!fileExists(apm)) {
@@ -389,14 +432,18 @@ ApmPaths findApmPaths() {
     if (root.empty()) root = amsysDir + "\\root";
     p.amsysRoot = root;
 
-    // 7z：pacman.ini → amsys resolve /bin/7z/7z.exe → 候选路径（不硬编码）
+    // 7z：pacman.ini（Windows 或 Unix 风格）→ amsys resolve /bin/7z/7z.exe → 候选
     std::string sevenz = cfg.sevenzip;
-    if (!sevenz.empty() && isDirectoryUtf8(sevenz)) sevenz += "\\7z.exe";
-    if (sevenz.empty()) {
-        AmsysPipe amsysClient(amsys);
-        if (amsysClient.ok()) sevenz = amsysClient.resolve("/bin/7z/7z.exe");
-        amsysClient.close();
+    if (!sevenz.empty()) {
+        if (sevenz[0] == '/') {
+            std::string win = resolveUnix(sevenz);
+            if (!win.empty()) sevenz = win;
+        } else {
+            sevenz = normalizeWin(sevenz);
+            if (isDirectoryUtf8(sevenz)) sevenz += "\\7z.exe";
+        }
     }
+    if (sevenz.empty()) sevenz = resolveUnix("/bin/7z/7z.exe");
     if (sevenz.empty()) {
         for (auto& c : {root + "\\bin\\7z\\7z.exe", root + "\\usr\\bin\\7z\\7z.exe",
                         amsysDir + "\\bin\\7z\\7z.exe"})
@@ -404,8 +451,74 @@ ApmPaths findApmPaths() {
     }
     p.sevenZip = sevenz;
 
+    amsysClient.close();
     p.valid = true;
     return p;
+}
+
+bool saveAssocAup(const ApmPaths& paths, bool on) {
+    PacmanConfig c;
+    c.amsys = paths.cfgAmsys;
+    c.apm = paths.cfgApm;
+    c.sevenzip = paths.cfgSevenzip;
+    c.assocAup = on;
+    writePacmanConfig(paths.configFile, c);
+    return true;
+}
+
+// 绑定/解绑 .aup 文件关联（写 HKCU\Software\Classes，不需要管理员权限）
+void applyAupAssociation(bool enable) {
+    wchar_t exe[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (!exe[0]) return;
+    std::wstring exePath(exe);
+    const wchar_t* keyAup = L"Software\\Classes\\.aup";
+    const wchar_t* keyProg = L"Software\\Classes\\aupfile";
+
+    if (!enable) {
+        // 解绑：删除我们写入的关联（即使之前不是 pacman 绑的，也一并清理）
+        RegDeleteTreeW(HKEY_CURRENT_USER, keyAup);
+        RegDeleteTreeW(HKEY_CURRENT_USER, keyProg);
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+        return;
+    }
+
+    // .aup → aupfile
+    HKEY h = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, keyAup, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &h, nullptr) == ERROR_SUCCESS) {
+        const wchar_t* v = L"aupfile";
+        RegSetValueExW(h, nullptr, 0, REG_SZ, (const BYTE*)v,
+                       (DWORD)((wcslen(v) + 1) * sizeof(wchar_t)));
+        RegCloseKey(h);
+    }
+    // aupfile 描述
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, keyProg, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &h, nullptr) == ERROR_SUCCESS) {
+        const wchar_t* v = L"aup 软件包";
+        RegSetValueExW(h, nullptr, 0, REG_SZ, (const BYTE*)v,
+                       (DWORD)((wcslen(v) + 1) * sizeof(wchar_t)));
+        RegCloseKey(h);
+    }
+    // 打开命令："<pacman.exe>" "%1"
+    std::wstring keyCmd = std::wstring(keyProg) + L"\\shell\\open\\command";
+    std::wstring cmd = L"\"" + exePath + L"\" \"%1\"";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, keyCmd.c_str(), 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &h, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(h, nullptr, 0, REG_SZ, (const BYTE*)cmd.c_str(),
+                       (DWORD)((cmd.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(h);
+    }
+    // 默认图标：<pacman.exe>,0
+    std::wstring keyIcon = std::wstring(keyProg) + L"\\DefaultIcon";
+    std::wstring icon = L"\"" + exePath + L"\",0";
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, keyIcon.c_str(), 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &h, nullptr) == ERROR_SUCCESS) {
+        RegSetValueExW(h, nullptr, 0, REG_SZ, (const BYTE*)icon.c_str(),
+                       (DWORD)((icon.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(h);
+    }
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 }
 
 std::vector<PackageInfo> listInstalledPackages(const ApmPaths& paths) {

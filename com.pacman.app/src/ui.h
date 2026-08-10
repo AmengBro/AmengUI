@@ -25,6 +25,7 @@ struct BrowseEntry {
 
 class DeepButton;
 class DeepTextButton;
+class ToggleSwitch;
 class IconWidget;
 class DownloadGlyph;
 class DashLine;
@@ -45,7 +46,7 @@ public:
     void show() override;  // 圆角窗口
 
 private:
-    enum class View { Home, Preview, Log, Cleaning, Browse };
+    enum class View { Home, Preview, Log, Cleaning, Browse, Menu };
     enum class InstallMode { None, Fresh, Reinstall, Update, Downgrade };
 
     struct OpState {
@@ -75,6 +76,8 @@ private:
     static void cleaning_done_cb(void*);
     static void process_drop_cb(void*);
     static void choose_cb(Fl_Widget*, void*);
+    static void hamburger_cb(Fl_Widget*, void*);
+    static void assoc_switch_cb(Fl_Widget*, void*);
     static void browse_up_cb(Fl_Widget*, void*);
     static void browse_cancel_cb(Fl_Widget*, void*);
     static void browse_open_cb(Fl_Widget*, void*);
@@ -90,6 +93,9 @@ private:
     void showCleaning();
     void closeAfterCleanup();
     void applyPreview(const AupPreview& r);
+    void toggleAssocAup();
+    void showMenuOverlay(bool open);
+    void hideMenuOverlay();
     void showBrowse();
     void leaveBrowse();
     void browseRefresh();
@@ -102,8 +108,18 @@ private:
     int handle(int ev) override;
 
     // 标题栏
+    Fl_Button* hamburger_ = nullptr;
     DeepButton* minBtn_ = nullptr;
     DeepButton* closeBtn_ = nullptr;
+
+    // 菜单覆盖页（汉堡菜单）
+    Fl_Box* menuPanel_ = nullptr;
+    Fl_Box* menuTitle_ = nullptr;
+    ToggleSwitch* assocSwitch_ = nullptr;
+    Fl_Box* assocHint_ = nullptr;
+    Fl_Box* menuVersion_ = nullptr;
+    DeepButton* menuBackBtn_ = nullptr;
+    View viewBeforeMenu_ = View::Home;
 
     // 首页
     DownloadGlyph* homeIcon_ = nullptr;

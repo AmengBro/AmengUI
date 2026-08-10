@@ -438,12 +438,252 @@ ipcMain.on('auth:restart', () => {
 - `src/index.js` 新增 `apps:listAll` IPC：经 amsys 转换器解析 `/usr/share/applications`（失败回退 `APP_ROOT/rootdir/usr/share/applications`），读取全部 `*.app`，经 `convertAppDataPaths` 转换 Unix 路径后返回 `{ appName, name, description, exePath, icon }` 数组
 - `src/preload.js` 暴露 `apps.listAll()`
 - `src/dashboard.js` `loadStartMenuApps()` 改为合并去重：`/usr/share/applications` 全部应用优先 + 用户桌面快捷方式补全（按 `start` 去重），不再只显示桌面快捷方式
-- 开始菜单应用项新增右键菜单"发送到桌面"：
-  - 已在该用户桌面则显示"已在桌面"（禁用态）
-  - 否则调用 `config.addDesktopApp` 写入 `./config/{userid}/desktop.json`，网格级联自动定位（每行 5 个，间距 95x105），桌面已渲染则自动刷新
+- 开始菜单应用项新增右键菜单"发送到桌面"：调用 `config.addDesktopApp` 写入 `./config/{userid}/desktop.json`，网格级联自动定位（每行 5 个，间距 95x105），桌面已渲染则自动刷新；**允许重复添加**（桌面本就允许多个相同图标，不做禁用/去重）
 - `src/dashboard.css` 新增 `.context-menu-item-disabled` 样式
 
 **实测**：`apps:listAll` 逻辑在 Node 中复现验证，当前生效根（D:\Codewhale）正确列出 browser/explorer/pacman/wps 四个应用及其转换后的 exePath/icon。
+
+**修复记录**：关机/重启/Shell 模式的确认弹窗弹出时开始菜单不再被自动关闭——移除三个电源按钮处理器中的 `closePowerSubmenu()/closeStartMenu()`，并让开始菜单外点关闭与电源子菜单外点关闭逻辑忽略弹窗（`.modal-overlay`）内的点击，ESC 在弹窗打开时也不再关闭开始菜单；弹窗取消后开始菜单保持原样，点击弹窗外部区域照常关闭。
+
+**补充**：桌面图标右键菜单新增"移除"项（垃圾桶图标）——调用 `config.removeDesktopApp(userId, appId)` 从 `./config/{userid}/desktop.json` 删除对应快捷方式并刷新桌面；仅移除快捷方式，不影响应用本体与开始菜单条目。
+
+---
+
+### 16. Shell 模式界面被强制重新显示 & 内置窗口置顶修正
+
+**用户反馈**：
+> 进入 shell 模式后程序应当被直接最小化直到 amsys 关闭，但 amsys 启动后程序依然被强制显示。临时设置窗口没有做成独立的普通窗口，属性变成了置顶，不符合要求。
+
+**修复**：
+- Shell 模式：主窗口与桌面窗口每 2 秒的置底定时器会调用 `setWindowToBottom()`，其 PowerShell 置底脚本带 `SWP_SHOWWINDOW` 标志，会把 Shell 模式下已隐藏的窗口重新显示出来
+  - `setWindowToBottom()` 增加 `isVisible()` 保护：隐藏窗口不再处理
+  - 置底脚本的 `SetWindowPos` 标志去掉 `SWP_SHOWWINDOW`，消除"检查后、脚本执行前被隐藏"的竞态（对可见窗口无影响，置底行为不变）
+- 内置窗口置顶修正：设置窗口（`settings:show`）与属性窗口（`properties:show`）`alwaysOnTop` 改为 `false`，成为普通窗口；锁屏、控制中心这类功能性弹窗保持置顶不变
+
+---
+
+### 17. amsys 路径动态解析（支持外部 amsys）
+
+**用户需求**：
+> 添加 amsys 路径的动态解析。通过内嵌的 amsys，读取配置文件里外部 amsys 的路径，然后程序调用外部 amsys。比如 amsys=/bin/com.amsys.app/amsys.exe
+
+**实现方案**：
+- `src/index.js` 新增 `getAmsysPath()`（带缓存）：
+  - 读取项目根 `config.ini` 中的 `amsys =` 键（节无关，推荐放在 `[paths]`，与 pacman.ini 约定一致）
+  - 值以 `/` 开头视为 Unix 风格路径，经内嵌路径转换（`PathConverter`）解析为 Windows 路径；也支持直接写 Windows 路径
+  - 用 `fs.access` 校验存在性，未配置/无效时回退内嵌 `src/amsys/amsys.exe`
+- 应用位置：
+  - `startAmsysProcess()`（Shell 模式）改用动态路径；工作目录优先取外部 amsys 所在目录（其 `config.ini` 通常同目录），否则回退项目根
+  - `app:launch` / `app:getInfo` 经 `resolveAmsysIfEmbedded()` 把指向内嵌 amsys 的 exePath（含内置 com.terminal 映射）替换为动态路径
+- `config.ini` 新增 `[paths]` 节与注释模板（示例路径 `/bin/com.amsys.app/amsys.exe` 当前在生效根中不存在，未启用，注释保留）
+
+**实测**（Node 复现）：无键→内嵌；Windows 路径存在（D:\Codewhale amsys）→ 使用外部；Unix 路径不存在→转换后校验失败回退内嵌；注释行不生效。
+
+---
+
+### 18. WiFi 开关事故与安全修复（严重：曾禁用整个无线网卡）
+
+**决定性根因（第五轮实机反馈后定位，解释整场事故）**：
+`sys.ps1` 的 `Invoke-SysCommand` 与 `audio.ps1` 的 `Invoke-AudioCommand` 的参数名
+写作 `param([object[]]$args)`——**`$args` 是 PowerShell 自动变量，函数内永远指向
+未绑定参数列表（空），根本拿不到调用方传入的值**。导致：
+- `wifiPower` 的 `$args[0]` 恒为 `$null` → 分发逻辑永远算出 `enable=$false` →
+  **无论 UI 点"开"还是"关"，程序实际执行的永远是"关闭无线电"**！
+  这就是"关有效、开必败/回弹、外部正常内部不正常"的总根源——
+  无线电从未被程序真正打开过，之前看到的"开启"都是驱动自恢复或外部开关所为
+- `wifiConnect` 的 ssid 恒为空 → 连接任何网络都报 `no_ssid`（用户早期反馈的"无法连接"）
+- `btConnect` / `btDisconnect` 恒拿到空 instanceId → 蓝牙设备连接/断开失效
+- `setBrightness` 恒收到 `$null` → 亮度被设为 0
+- `audio.ps1` 的 `setVolume`/`setMute`/`setDefaultDevice`/`setSessionVolume`/`setSessionMute`
+  同样全部失效（setVolume 恒设为 0）
+
+**修复**：两个文件的参数名改为 `$cmdArgs`，全部引用同步更新；
+用只读/幂等测试验证：服务端 `wifiPower [true]`（无线电已开启）返回
+`{"success":true,"enabled":true}` 且无线电保持开启（修复前同调用返回
+`enabled:false` 并把无线电关掉）；audio `setVolume` 以当前值写回成功。
+**教训：PowerShell 函数参数严禁命名为 `$args`。**
+
+**连接状态同步修复（第六轮）**：
+- 根因：`netsh wlan connect` 返回成功只是"命令被接受"，实际关联需数秒；
+  界面只刷新一次就读到"未连接"且不再更新，造成"已连上但界面不显示"
+- 修复：`wifiStatus` 新增 `connecting` 字段（匹配 associating/authenticating/
+  正在连接/正在验证等状态）；连接成功后 UI 每 1.5s 轮询状态（最多约 18s）
+  直到同步为"已连接"，期间状态卡显示"正在连接…"
+- 密码入口：加密且无已存配置的网络按钮文案"连接"，
+  点击弹出密码框（`showPasswordBox` 功能一直存在，`$cmdArgs` 修复后已可用）
+- 清理控制中心的调试日志（build 标记、WiFi 开关成功路径日志），保留失败 console.error
+
+**网络/蓝牙视图滚动与尺寸（第七轮）**：
+- 根因：`html/body` 未设 `height: 100%`，`.view` 的 `height: 100%` 失效，
+  列表撑出窗口后被 `body { overflow: hidden }` 裁掉，滚轮永远无内容可滚
+- 修复：`html, body { height: 100% }` 补齐高度链，`.sessions-list`
+  （`overflow-y: auto; flex: 1; min-height: 0`）成为真正的滚动容器，滚轮可滚动查看更多 WiFi
+- 尺寸：网络/蓝牙视图打开时不再放大窗口（`resize(340,560/540)` → `resize(320,420)`），
+  与原控制中心保持一致；音量合成器视图仍保持 340x520
+
+**蓝牙配对套件 + WiFi 右键菜单（第八轮）**：
+- 已配对列表重构：Win32 `BluetoothFindFirstDevice`（remembered）为主、注册表
+  `BTHPORT\Parameters\Devices` 兜底/地址规范源；地址统一为注册表/PnP 显示序
+  （API ulong 按大端存显示序）；按名称去重并优先规范地址；状态仅 未连接/已连接
+- 新命令：`btDiscover`（inquiry≈4s，过滤已配对）、`btPair(address,pin)`（空 pin 自动试
+  空串/0000/1234，需配对码时返回 `pinRequired` 由 UI 弹输入框）、`btUnpair`、
+  `btInfo`（名称/地址/类别/连接/认证/服务）、`wifiForget`（netsh delete profile，
+  需检查输出文本——netsh 对不存在的配置也返回 0）
+- `btConnect/btDisconnect` 入参改为 MAC 地址，服务端解析对应 PnP 实例后沿用 pnputil
+- UI：蓝牙默认只显示已配对（连接/断开按钮）；底部"显示所有设备"切换显示未配对设备
+  （状态"未配对"+配对按钮）；右键菜单（蓝牙=连接/断开、取消配对、属性；WiFi=连接/断开、
+  忘记、属性）；配对码弹窗；属性弹窗；忘记/取消配对带确认弹窗
+- **pwsh7 预留**：`$script:IsPwsh7` 检测 + `$script:btWinRtEnabled=false` 开关；
+  `btDiscover/btPair/btUnpair/btInfo` 均为薄封装，WinRT 分支（`*-WinRT` 桩）已写好
+  契约注释（FindAllAsync(BluetoothDevice.GetDeviceSelector) + ProvidePin/PairingRequested），
+  将来内置 pwsh7 置开关为 true 即可，UI/IPC 不变；Win32 路径在 pwsh7 下同样可编译运行
+- **连接/断开 `action_failed` 修复（第九轮）**：pnputil 启用/禁用设备需要管理员权限，
+  非提权运行时全部失败。改为**首选 `BluetoothSetServiceState`**（Win32 服务连接 API，
+  无需管理员、语义正确——手机等设备按服务连接），遍历设备已安装服务（无则回退
+  OPP/OBEX FTP/PBAP/A2DP/HFP/SPP/HID 常用 GUID）；失败再回退 pnputil 并检测管理员
+  返回 `admin_required` 友好错误。注意 C# 中 foreach 迭代变量不能按 ref 传参（CS1657）
+- **"成功但未连接 / 二次点击 action_failed"修复（第十轮）**：
+  - `BluetoothSetServiceState` 对不在范围/不支持服务的设备也会返回 0（命令被接受≠已连接），
+    故连接后必须复查 `BluetoothGetDeviceInfo.fConnected`，如实返回 `connected` + 说明文案
+  - 服务已启用后再次启用会报错并落到 pnputil → `action_failed`；改为**先查已连接则直接成功**，
+    失败时把服务错误放入 `detail` 供界面展示
+  - 手机类设备语义：按服务连接（OBEX 传文件/A2DP 音频），不存在持久"已连接"；
+    UI 在"已发送请求但未连接"时显示说明而非报错
+- **ERROR_SERVICE_NOT_FOUND(0x424) 处理（第十一轮）**：手机（如 AmengBro）未注册可被
+  `BluetoothSetServiceState` 激活的经典服务，所有 GUID 均返回 0x424。识别该错误后
+  不再落到无意义的 pnputil，返回 `service_not_found` + 说明文案，UI 提供
+  "打开蓝牙文件传输"按钮一键启动 `fsquirt.exe`（Windows 原生 OBEX 向导）；
+  pnputil 兜底仅保留给 BTHLE 设备
+- **BLE 设备 0x80070057 + 报错框布局（第十二轮）**：
+  - 无名/LE 设备（BTHLE）地址在经典 Win32 API 下查找即返回 E_INVALIDARG(0x80070057)；
+    `btConnect/btDisconnect` 改为**先判断实例类型，BTHLE 直接走 pnputil**（跳过经典 API），
+    并附说明"需管理员权限"
+  - 报错框长文本会压缩按钮：`service_not_found` 提示改为**文案内嵌可点击链接**
+    "蓝牙文件传输"（`.link-text` 样式）一键启动 fsquirt，不再使用独立按钮；
+    `.mixer-error span` 允许换行
+- **连接失败提示简化（第十三轮）**：管理员模式下部分设备仍无法连接（设备拒绝或需专门软件）。
+  除 `service_not_found`（内嵌文件传输链接）与 `admin_required` 外，一律显示
+  "设备拒绝连接或需要专门软件"；原始错误码仅进 console 与报错框 title（悬停可见），
+  避免长文本撑爆 320px 提示框（`.mixer-error span` 加 word-break/overflow-wrap）
+
+**用户反馈**：
+> 你的 wifi 开关有严重问题，直接让我的电脑 wifi 瘫痪了，原本系统的 wifi 开关已经完全消失了。
+> 我终于发现了你的 wifi 开关根本不是控制 wifi 是否启用，而是控制是否启用用户的 wifi 适配器！
+
+**事故根因**：
+- `src/scripts/sys.ps1` 旧 `Invoke-WifiPower` 用 `netsh interface set interface name="WLAN" admin=disabled/enabled`
+  直接停用/启用整个无线网卡适配器。禁用适配器后，Windows 设置中的 WiFi 开关消失，
+  与系统"WiFi 开关"（软件无线电状态）完全是两回事。
+- 另一处隐患：`Get-NetAdapterName()` 会选中任意"Up 的有线物理网卡"，在纯 WiFi 笔记本上
+  会选中 WLAN 适配器，导致 `networkToggle`（`system:toggleNetwork`）同样可能禁用无线网卡。
+
+**修复方案（最终采用）**：
+- **WiFi 开关**（`Invoke-WifiPower` / `wifiPower` 命令）：wlanapi `WlanSetInterface`
+  radio_state（opcode=4）切换软件无线电状态，与 Windows 系统 WiFi 开关等效：
+- **逐个写入所有有效 PHY**（12 字节 `WLAN_PHY_RADIO_STATE`：dwPhyIndex + software + hardware，hardware 忽略）；
+  先做幂等判断（当前状态已等于目标则直接返回），切换时才写——
+  这既避免了"已开启时重复写 ON 触发驱动异常关断"（历史事故），
+  又解决了"只写首个 PHY 无法把无线电重新打开"（AX201 实测：上电必须写全部 PHY，
+  用户实机曾因此出现"开启后开关反弹"）
+  - 写入后轮询查询状态直到收敛（关闭约 1~2 秒、开启约 10 秒，最长等 25 秒），返回真实最终状态
+  - 无需管理员权限、不依赖 netsh 接口可见性；网卡适配器与系统 WiFi 开关完全不受影响
+- **连接即开启**：`wifiConnect` 前先用 wlanapi 确保无线电开启，再尝试恢复 `autoconfig enabled=yes`
+  （需要管理员，失败忽略），最后 `netsh wlan connect`（失败时返回 netsh 原文便于排查）
+- **网络开关**（`Invoke-NetworkToggle` / `networkToggle`）：`Get-NetAdapterName()` 增加
+  `-notmatch 'Wireless|Wi-Fi|WLAN|无线|Bluetooth'` 过滤，只能操作有线网卡，任何情况下都不可能再碰无线网卡
+- **状态展示**：`wifiStatus` 返回 `radioEnabled`/`hardwareEnabled`（wlanapi 只读查询）、
+  `autoConfigEnabled`（`netsh wlan show settings` 解析，仅作提示）；UI 开关直接反映无线电状态
+- **消除开关反弹**：开关点击后乐观更新 + loading，失败时显示具体错误（不再盲目回滚），
+  操作结束统一以服务端返回的真实状态重新渲染
+- **"开关无法停在开启位置"根因（第二轮实机反馈）**：状态读取与收敛判断曾使用"全部 PHY 都 on"
+  作为无线电开启标准；多 PHY 网卡（AX201 有 6 个 PHY）上若个别从属 PHY 保持 off，
+  会导致 35 秒收敛超时→判失败→开关弹回，而 Windows 只看主 PHY（外部开关正常）。
+  已改为**状态与收敛只取首个有效 PHY**（与 managednativewifi / Windows 判定一致），
+  写入仍写全部 PHY（上电必需）
+- **日志降噪**：`forceWindowToBottom` / `setWindowToBottom` / `forceWindowToBottomWithNircmd`
+  每 2 秒执行一次且打印约 20 行调试日志，已全部移除（保留失败时的 console.error）
+- **"瞬间回弹且无报错"根因（第三轮实机反馈）**：开关失败时错误框先显示、随后被
+  `loadNetwork(true)` 立即隐藏，用户看不到任何错误。已改为"先渲染实际状态、再显示错误"，
+  错误信息保持可见；另给 `WlanSetInterface` 增加 500ms 单次重试以吸收驱动瞬时错误
+- **"无任何输出"排查（第四轮）**：确认绑定链路完整（`initControlCenter`→`bindNetworkView`→
+  `btn-wifi-power`，preload 经 contextBridge 暴露 `setWifiPower`）。
+  真正的隐患是**控制中心窗口创建一次后永久复用**（`control-center:show` 直接 show 不重载），
+  且 sysServer 在应用启动时加载旧 `sys.ps1`——未完全重启时窗口/服务器均为旧代码。
+  已修复：开发模式下每次显示控制中心强制 `webContents.reload()`；
+  控制中心启动打印版本标记（`[控制中心] build: 2026-08-10-r3`）；
+  开关操作打印 `[WiFi开关] 点击/IPC 返回/异常` 日志；绑定函数逐个 try/catch 防中断
+- **自动配置处理（"找不到网络"根因）**：自动配置关闭时 `netsh wlan show networks` 失败，
+  程序会误显示"未扫描到可用网络"。新增 `Enable-AutoConfig`：扫描/连接/开启 WiFi 前自动尝试
+  `netsh wlan set autoconfig enabled=yes`（需要管理员权限）；失败时 `wifiScan` 返回
+  `autoConfigOff=true`，UI 明确提示"自动配置已关闭"并给出管理员命令，不再误导用户
+
+**wlanapi 无线电状态写入试验记录（重要，勿重蹈覆辙）**：
+- 曾按社区方案实现 `WlanSetInterface`（opcode `wlan_intf_opcode_radio_state`=4），
+  数据为单个 `WLAN_PHY_RADIO_STATE`（12 字节：dwPhyIndex + software + hardware），需逐 PHY 调用；
+  `WLAN_RADIO_STATE` 查询结构固定 64 项（`WLAN_MAX_PHY_INDEX`），返回 4+64*12=772 字节
+- `DOT11_RADIO_STATE`：unknown=0 / on=1 / off=2（off 不是 0）
+- 实测（AX201，6 PHY）发现：**无幂等保护时循环写全部 PHY 是"开启请求触发关断"的元凶**
+  （与 CLI 布尔解析 `[bool]'false'=$true` 叠加造成多次误操作）；
+  但**只写首个 PHY 时无线电无法重新上电**（用户实机反馈：程序内开启后开关反弹、
+  外部系统开关正常），最终方案为"幂等判断 + 全部 PHY 写入 + 收敛轮询（35 秒上限）"
+- **netsh autoconfig 方案已被否决**（曾短暂采用）：`netsh wlan set autoconfig` 需要管理员权限，
+  非提权运行时必定失败；且 autoconfig 关闭后 netsh wlan 会"丢失"接口，后续 `set autoconfig`/
+  `connect` 全部报参数错误，必须重启适配器才能恢复（用户实机踩坑）
+- 结论：**最终方案 = wlanapi 无线电状态写入（幂等判断 + 全部 PHY）+ 收敛轮询**，无需管理员、不依赖 netsh
+
+**控制中心全面审核结果**：
+- **WiFi 开关（`wifiPower`）**：wlanapi 无线电状态，幂等判断 + 全部 PHY 写入；
+  实测适配器 AdminStatus 全程保持 Up，系统设置 WiFi 开关不受影响；
+  属于"关断无线电"的正常开关行为，无适配器级危险
+- **网络开关（`networkToggle`）**：`netsh interface set interface admin=disabled/enabled` 仍存在，
+  但 `Get-NetAdapterName()` 已排除无线/蓝牙网卡，只能操作有线网卡；且 UI 无任何调用（仅 preload 暴露）
+- **关机/重启（`auth:shutdown`/`auth:restart`）**：`spawn shutdown /s|/r /t 0` 是即时关机命令；
+  当前 renderer.js 的 `handleShutdown`/`handleRestart` 只弹确认窗、**并未调用** `power.shutdown()/restart()`，
+  所以当前不可达（属功能 bug，不是危险源）；若日后接上必须保留确认弹窗
+- **蓝牙开关（`bluetoothToggle`）**：`pnputil /disable-device` 禁用蓝牙无线电设备（同类模式、可恢复，
+  不影响 WiFi），建议后续迁移到 Windows RadioManagement API
+- **飞行模式（`flightToggle`）**：注册表 `SystemRadioState`，会按预期同时关闭/开启 WiFi 与蓝牙无线电
+- **`system:exec`（`src/index.js`）**：任意命令执行 IPC 且 preload 暴露给渲染层，存在安全隐患；
+  当前 UI 无任何调用，建议后续移除或加白名单
+- 夜间模式（CloudStore）、亮度（WMI）实现安全，无需修改
+- 音量合成器（Core Audio COM 互操作）不涉及网卡/系统开关，安全
+
+**恢复命令（用户实机若再遇适配器被禁用）**：
+```powershell
+Get-NetAdapter -Name *Wi* | Enable-NetAdapter
+# 或
+netsh interface set interface name="WLAN" admin=enabled
+```
+
+**注意**：修改 `sys.ps1` 后必须重启 AmengUI（常驻 PowerShell 服务进程内仍是旧代码），
+修复才能生效；`sys.ps1` 需保持 UTF-8 带 BOM（PowerShell 5.1 中文解析要求）。
+
+---
+
+### 19. pwsh7 路径可配置（支持便携版）
+
+**用户需求**：
+> 程序逻辑里面调用 pwsh7 的部分采用可配置路径，可以使用便携版的 PWSH
+
+**背景**：此前 `getPwshPath()` 的解析链为 内置 `PowerShell/7/pwsh.exe` → 系统 PATH `pwsh` →
+`powershell`（5.1）。仓库中并未实际内置 pwsh7，因此多数环境实际跑在系统 PowerShell 上；
+且用户希望能在不安装 pwsh7、不依赖系统 PowerShell 的前提下，直接指向自己的便携版 pwsh。
+
+**实现方案**（与 amsys 路径动态解析同模式，`config.ini` 的 `[paths]` 节）：
+- `config.ini` 新增 `pwsh =` 键（注释模板）：支持 Unix 风格路径（如 `pwsh=/opt/pwsh/pwsh.exe`，
+  经内嵌转换解析）、Windows 绝对路径、相对项目根的相对路径三种写法
+- `getPwshPath()` 解析链调整为：
+  1. `config.ini` 中 `pwsh =` 配置的路径（`fs.access` 校验存在性，无效则警告并忽略）
+  2. 内置 `PowerShell/7/pwsh.exe`
+  3. 系统 PATH 上的 `pwsh`（`where pwsh` 验证存在才采用，避免误伤仅装 PS5 的机器）
+  4. 回退 `powershell`（5.1，最后手段，解析时 console.warn 提示一次）
+- 结果缓存于 `resolvedPwshPath`，全程只解析一次；所有调用点（控制中心常驻服务
+  `PwshServer`、Shell 模式 `startAmsysProcess`、置底 `forceWindowToBottom`）都经
+  `getPwshPath()`，一处修改全部生效
+- 顺带：`isTerminal` 终端程序检测补充 `pwsh.exe`，`.app` 指向便携版 pwsh 时也能正确分配控制台
+
+**实测**（Node 复现解析逻辑）：配置存在路径→优先使用；配置无效→警告后回退；
+`pwsh` 键被注释/无 config.ini→系统 PATH pwsh；解析链自上而下逐级降级，无空档。
 
 ---
 

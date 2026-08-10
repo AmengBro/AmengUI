@@ -17,12 +17,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "AmengStudio"
             VALUE "FileDescription", "包管理器/安装器"
-            VALUE "FileVersion", "1.0.1.0"
+            VALUE "FileVersion", "1.0.3.0"
             VALUE "InternalName", "软件包管理器"
             VALUE "LegalCopyright", "Copyright (C) 2026 AmengBro"
             VALUE "OriginalFilename", "pacman.exe"
             VALUE "ProductName", "包管理器"
-            VALUE "ProductVersion", "1.0.1.0"
+            VALUE "ProductVersion", "1.0.3.0"
         END
     END
     BLOCK "VarFileInfo"

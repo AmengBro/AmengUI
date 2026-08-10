@@ -1,46 +1,6 @@
 {
   "desktopapp": [
     {
-      "id": 1,
-      "x": 487,
-      "y": 147,
-      "name": "终端",
-      "start": "com.terminal",
-      "icon": "C:\\Windows\\System32\\cmd.exe"
-    },
-    {
-      "id": 2,
-      "x": 296,
-      "y": 156,
-      "name": "资源管理器",
-      "start": "com.explorer",
-      "icon": ""
-    },
-    {
-      "id": 3,
-      "x": 477,
-      "y": 415,
-      "name": "浏览器",
-      "start": "com.browser",
-      "icon": null
-    },
-    {
-      "id": 1783124938824,
-      "x": 425,
-      "y": 497,
-      "name": "终端",
-      "start": "com.terminal",
-      "icon": "C:\\Windows\\System32\\cmd.exe"
-    },
-    {
-      "id": 1783124944403,
-      "x": 354,
-      "y": 339,
-      "name": "资源管理器",
-      "start": "com.explorer",
-      "icon": null
-    },
-    {
       "id": 1783124955109,
       "x": 514,
       "y": 334,
@@ -49,44 +9,28 @@
       "icon": null
     },
     {
-      "id": 1783125094914,
-      "x": 578,
-      "y": 633,
-      "name": "终端",
-      "start": "com.terminal",
-      "icon": "C:\\Windows\\System32\\cmd.exe"
-    },
-    {
       "id": 1783124944491,
-      "x": 228,
-      "y": 652,
+      "x": 227,
+      "y": 366,
       "name": "WPS office",
       "start": "com.wps",
       "icon": null
     },
     {
-      "id": 1783867448256,
-      "x": 1078,
-      "y": 548,
-      "name": "终端",
-      "start": "com.terminal",
-      "icon": "C:\\Windows\\System32\\cmd.exe"
-    },
-    {
-      "id": 1786084548717,
-      "x": 671,
-      "y": 69,
+      "id": 1786088865403,
+      "x": 201,
+      "y": 219,
       "name": "软件包管理器",
       "start": "com.pacman",
       "icon": "D:\\Codewhale\\workspace\\amsys\\root\\bin\\com.pacman.app\\pacman.exe"
     },
     {
-      "id": 1786084582447,
-      "x": 834,
-      "y": 240,
-      "name": "浏览器",
-      "start": "com.browser",
-      "icon": null
+      "id": 1786286755569,
+      "x": 395,
+      "y": 225,
+      "name": "AmengExplorer",
+      "start": "com.amengexplorer",
+      "icon": "D:\\Codewhale\\workspace\\amsys\\root\\opt\\com.amengexplorer.app\\amengexplorer.exe"
     }
   ],
   "desktopbg": null

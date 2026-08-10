@@ -22,6 +22,7 @@ const MENU_ICONS = {
   cut: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M9.64 7.64c.23-.5.36-1.05.36-1.64 0-2.21-1.79-4-4-4S2 3.79 2 6s1.79 4 4 4c.59 0 1.14-.13 1.64-.36L10 12l-2.36 2.36C7.14 14.13 6.59 14 6 14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4c0-.59-.13-1.14-.36-1.64L12 14l7 7h3v-1L9.64 7.64zM6 8c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm0 12c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm6-7.5c-.28 0-.5-.22-.5-.5s.22-.5.5-.5.5.22.5.5-.22.5-.5.5zM19 3l-6 6 2 2 7-7V3z"/></svg>',
   paste: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/></svg>',
   sendToDesktop: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>',
+  remove: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>'
 };
@@ -114,6 +115,7 @@ function showContextMenu(x, y, app) {
       { label: '打开', icon: MENU_ICONS.open, action: () => launchApp(app) },
       { label: '复制', icon: MENU_ICONS.copy, action: () => copyApp(app) },
       { label: '剪切', icon: MENU_ICONS.cut, action: () => cutApp(app) },
+      { label: '移除', icon: MENU_ICONS.remove, action: () => removeDesktopApp(app) },
       { label: '属性', icon: MENU_ICONS.properties, action: () => showAppProperties(app) }
     ];
   } else {
@@ -203,6 +205,23 @@ function cutApp(app) {
  */
 function clearCutHighlight() {
   document.querySelectorAll('.desktop-app.cut').forEach(el => el.classList.remove('cut'));
+}
+
+/**
+ * 移除桌面图标（仅移除桌面快捷方式，不影响应用本身与开始菜单）
+ * @param {Object} app - 桌面应用对象（含 id）
+ */
+async function removeDesktopApp(app) {
+  try {
+    if (!app || app.id === undefined) return;
+    const userId = await getCurrentUserId();
+    if (!userId) return;
+    await window.electronAPI.config.removeDesktopApp(userId, app.id);
+    console.log('[Desktop] Removed app:', app.name);
+    await refreshDesktop();
+  } catch (error) {
+    console.error('[Desktop] Remove app failed:', error);
+  }
 }
 
 /**
@@ -1057,6 +1076,8 @@ function initStartMenu() {
   // 点击空白处关闭菜单
   document.addEventListener('click', (e) => {
     const target = e.target;
+    // 确认弹窗打开时不关闭开始菜单
+    if (target.closest('.modal-overlay')) return;
     if (!target.closest('.start-menu') && !target.closest('.start-btn')) {
       closeStartMenu();
     }
@@ -1065,6 +1086,8 @@ function initStartMenu() {
   // ESC 键关闭菜单
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      const overlay = document.getElementById('modal-overlay');
+      if (overlay && !overlay.classList.contains('hidden')) return;
       closeStartMenu();
     }
   });
@@ -1172,7 +1195,6 @@ async function loadStartMenuApps() {
       seen.add(start);
       apps.push({ start, name: app.name || start, icon: app.icon || null, description: app.description || '' });
     }
-    const desktopStartSet = new Set(desktopApps.map(a => a.start));
     for (const app of desktopApps) {
       if (!app.start || seen.has(app.start)) continue;
       seen.add(app.start);
@@ -1233,7 +1255,6 @@ async function loadStartMenuApps() {
           start: app.start,
           name: app.name,
           icon: app.icon,
-          onDesktop: desktopStartSet.has(app.start),
         });
       });
     }
@@ -1261,19 +1282,15 @@ function showStartMenuContextMenu(x, y, entry) {
   iconSpan.className = 'context-menu-icon';
   iconSpan.innerHTML = MENU_ICONS.sendToDesktop;
   const textSpan = document.createElement('span');
-  textSpan.textContent = entry.onDesktop ? '已在桌面' : '发送到桌面';
+  textSpan.textContent = '发送到桌面';
   item.appendChild(iconSpan);
   item.appendChild(textSpan);
-  if (entry.onDesktop) {
-    item.classList.add('context-menu-item-disabled');
-  } else {
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      closeContextMenu();
-      sendToDesktop(entry);
-    });
-  }
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    closeContextMenu();
+    sendToDesktop(entry);
+  });
   menu.appendChild(item);
   document.body.appendChild(menu);
   document.addEventListener('click', closeContextMenu);
@@ -1289,10 +1306,6 @@ async function sendToDesktop(entry) {
     if (!userId) return;
     const desktopData = await window.electronAPI.config.getUserDesktop(userId);
     const desktopApps = (desktopData && desktopData.desktopapp) || [];
-    if (desktopApps.some((a) => a.start === entry.start)) {
-      console.log('[StartMenu] App already on desktop:', entry.start);
-      return;
-    }
     const pos = getNextDesktopPosition(desktopApps);
     const newApp = {
       name: entry.name,
@@ -1387,7 +1400,9 @@ function bindPowerButtons() {
   }
   
   // 点击其他地方关闭子菜单
-  document.addEventListener('click', () => {
+  document.addEventListener('click', (e) => {
+    // 确认弹窗打开时不关闭电源子菜单
+    if (e.target.closest('.modal-overlay')) return;
     if (powerSubmenu && !powerSubmenu.classList.contains('hidden')) {
       powerSubmenu.classList.add('hidden');
     }
@@ -1397,8 +1412,6 @@ function bindPowerButtons() {
   const shutdownBtn = document.getElementById('start-menu-shutdown');
   if (shutdownBtn) {
     shutdownBtn.addEventListener('click', () => {
-      closePowerSubmenu();
-      closeStartMenu();
       // 与登录页一致的交互：确认后显示“正在关机”提示
       showConfirmModal('确定要关机吗？', () => {
         showConfirmModal('正在关机...', () => {}, false);
@@ -1410,8 +1423,6 @@ function bindPowerButtons() {
   const restartBtn = document.getElementById('start-menu-restart');
   if (restartBtn) {
     restartBtn.addEventListener('click', () => {
-      closePowerSubmenu();
-      closeStartMenu();
       // 与登录页一致的交互：确认后显示“正在重新启动”提示
       showConfirmModal('确定要重新启动吗？', () => {
         showConfirmModal('正在重新启动...', () => {}, false);
@@ -1423,8 +1434,6 @@ function bindPowerButtons() {
   const shellBtn = document.getElementById('start-menu-shell');
   if (shellBtn) {
     shellBtn.addEventListener('click', () => {
-      closePowerSubmenu();
-      closeStartMenu();
       showConfirmModal('确定要进入Shell模式吗？', () => {
         window.electronAPI.power.shell();
       }, false);

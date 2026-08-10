@@ -82,17 +82,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setSessionVolume: (pid, volume) => ipcRenderer.invoke('system:setSessionVolume', pid, volume),
     /** 设置指定应用的静音 */
     setSessionMute: (pid, mute) => ipcRenderer.invoke('system:setSessionMute', pid, mute),
-    /** 切换网络状态 */
-    toggleNetwork: () => ipcRenderer.invoke('system:toggleNetwork'),
     /** 切换蓝牙状态 */
     toggleBluetooth: () => ipcRenderer.invoke('system:toggleBluetooth'),
     /** 切换飞行模式 */
     toggleFlightMode: () => ipcRenderer.invoke('system:toggleFlightMode'),
-    /** 切换夜间模式 */
-    toggleNightMode: () => ipcRenderer.invoke('system:toggleNightMode'),
+    /** 获取飞行模式状态 */
+    getFlightStatus: () => ipcRenderer.invoke('system:getFlightStatus'),
+    /** 获取移动热点状态 */
+    getHotspotStatus: () => ipcRenderer.invoke('system:getHotspotStatus'),
+    /** 切换移动热点 */
+    toggleHotspot: () => ipcRenderer.invoke('system:toggleHotspot'),
     /** 获取 WiFi 连接状态 */
     getWifiStatus: () => ipcRenderer.invoke('system:getWifiStatus'),
-    /** 开关 WiFi 适配器 */
+    /** 开关 WiFi（软件无线电状态，与 Windows 系统开关等效；无需管理员，不会禁用网卡） */
     setWifiPower: (enabled) => ipcRenderer.invoke('system:setWifiPower', enabled),
     /** 扫描可用 WiFi */
     scanWifi: () => ipcRenderer.invoke('system:scanWifi'),
@@ -102,12 +104,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     disconnectWifi: () => ipcRenderer.invoke('system:disconnectWifi'),
     /** 获取已配对蓝牙设备 */
     getBluetoothDevices: () => ipcRenderer.invoke('system:getBluetoothDevices'),
+    /** 发现未配对蓝牙设备（查询约 4~10 秒） */
+    discoverBluetoothDevices: () => ipcRenderer.invoke('system:discoverBluetoothDevices'),
+    /** 配对蓝牙设备（address 为 MAC；pin 为空则自动尝试常用码，需配对码时返回 pinRequired） */
+    pairBluetoothDevice: (address, pin) => ipcRenderer.invoke('system:pairBluetoothDevice', address, pin),
+    /** 取消配对蓝牙设备 */
+    unpairBluetoothDevice: (address) => ipcRenderer.invoke('system:unpairBluetoothDevice', address),
+    /** 获取蓝牙设备信息（属性用） */
+    getBluetoothDeviceInfo: (address) => ipcRenderer.invoke('system:getBluetoothDeviceInfo', address),
     /** 获取蓝牙开关状态 */
     getBluetoothStatus: () => ipcRenderer.invoke('system:getBluetoothStatus'),
-    /** 连接蓝牙设备 */
-    connectBluetoothDevice: (instanceId) => ipcRenderer.invoke('system:connectBluetoothDevice', instanceId),
-    /** 断开蓝牙设备 */
-    disconnectBluetoothDevice: (instanceId) => ipcRenderer.invoke('system:disconnectBluetoothDevice', instanceId),
+    /** 连接蓝牙设备（入参为 MAC 地址） */
+    connectBluetoothDevice: (address) => ipcRenderer.invoke('system:connectBluetoothDevice', address),
+    /** 断开蓝牙设备（入参为 MAC 地址） */
+    disconnectBluetoothDevice: (address) => ipcRenderer.invoke('system:disconnectBluetoothDevice', address),
+    /** 忘记 WiFi 网络（删除已存配置文件） */
+    forgetWifi: (ssid) => ipcRenderer.invoke('system:forgetWifi', ssid),
     /** 获取系统能力（PE 兼容性探测） */
     getCapabilities: () => ipcRenderer.invoke('system:getCapabilities')
   },

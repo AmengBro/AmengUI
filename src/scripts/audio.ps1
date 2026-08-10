@@ -648,7 +648,9 @@ function Get-SessionRows {
 }
 
 function Invoke-AudioCommand {
-  param([string]$cmd, [object[]]$args)
+  # 重要：参数名不能用 $args（自动变量遮蔽），否则所有带参命令收不到参数
+  # （曾造成 setVolume 等静默失效，与 sys.ps1 同源事故，见 AGENTS.md 第 18 节）
+  param([string]$cmd, [object[]]$cmdArgs)
   # 注意：不要用 switch 语句分发命令——PowerShell 5.1 对 switch 子句内的
   # 多行 hashtable/表达式存在解析与执行怪癖，if/elseif 完全兼容
   if ($cmd -eq 'capabilities') {
@@ -664,7 +666,7 @@ function Invoke-AudioCommand {
       deviceName = $name
     }
   } elseif ($cmd -eq 'setVolume') {
-    $pct = [int]$args[0]
+    $pct = [int]$cmdArgs[0]
     if ($pct -lt 0) { $pct = 0 }
     if ($pct -gt 100) { $pct = 100 }
     $ok = [AmengAudio.NativeAudio]::SetMasterVolume(($pct / 100.0))
@@ -679,7 +681,7 @@ function Invoke-AudioCommand {
     }
     [pscustomobject]@{ success = $ok }
   } elseif ($cmd -eq 'setMute') {
-    $m = [bool]$args[0]
+    $m = [bool]$cmdArgs[0]
     $ok = [AmengAudio.NativeAudio]::SetMasterMute($m)
     [pscustomobject]@{ success = $ok }
   } elseif ($cmd -eq 'getDevices') {
@@ -695,7 +697,7 @@ function Invoke-AudioCommand {
     })
     [pscustomobject]@{ defaultId = $def; devices = $mapped }
   } elseif ($cmd -eq 'setDefaultDevice') {
-    $ok = [AmengAudio.NativeAudio]::SetDefaultDevice([string]$args[0])
+    $ok = [AmengAudio.NativeAudio]::SetDefaultDevice([string]$cmdArgs[0])
     [pscustomobject]@{ success = $ok }
   } elseif ($cmd -eq 'getSessions') {
     # 同一进程可能持有多个会话（如系统声音），按 PID 合并为一行
@@ -704,15 +706,15 @@ function Invoke-AudioCommand {
     $mapped = Get-SessionRows $sessions
     [pscustomobject]@{ sessions = $mapped }
   } elseif ($cmd -eq 'setSessionVolume') {
-    $targetPid = [int]$args[0]
-    $pct = [int]$args[1]
+    $targetPid = [int]$cmdArgs[0]
+    $pct = [int]$cmdArgs[1]
     if ($pct -lt 0) { $pct = 0 }
     if ($pct -gt 100) { $pct = 100 }
     $ok = [AmengAudio.NativeAudio]::SetSessionVolumeByPid($targetPid, ($pct / 100.0))
     [pscustomobject]@{ success = $ok }
   } elseif ($cmd -eq 'setSessionMute') {
-    $targetPid = [int]$args[0]
-    $m = [bool]$args[1]
+    $targetPid = [int]$cmdArgs[0]
+    $m = [bool]$cmdArgs[1]
     $ok = [AmengAudio.NativeAudio]::SetSessionMuteByPid($targetPid, $m)
     [pscustomobject]@{ success = $ok }
   } else {

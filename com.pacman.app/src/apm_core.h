@@ -12,6 +12,10 @@ struct ApmPaths {
     std::string amsysExe;    // amsys.exe（--pipe 用）
     std::string amsysRoot;   // amsys 虚拟根（如 D:\Codewhale\workspace\amsys\root）
     std::string sevenZip;    // 7z.exe 完整路径
+    std::string cfgAmsys;    // pacman.ini 原始值（保留用户写法）
+    std::string cfgApm;
+    std::string cfgSevenzip;
+    bool assocAup = false;   // [settings] 自动关联 .aup 打开方式
     bool valid = false;
     std::string error;
 };
@@ -34,6 +38,12 @@ struct AupPreview {
 
 // UTF-8 路径是否存在且为文件（内部走宽字符 API，支持中文路径）
 bool fileExistsUtf8(const std::string& p);
+
+// 写入 pacman.ini 的 [settings] assoc_aup（保留 paths 原始写法）
+bool saveAssocAup(const ApmPaths& paths, bool on);
+
+// 绑定/解绑 .aup 文件关联（HKCU\Software\Classes，无需管理员）
+void applyAupAssociation(bool enable);
 
 // 定位 apm.exe / amsys 虚拟根 / 7z.exe
 ApmPaths findApmPaths();
