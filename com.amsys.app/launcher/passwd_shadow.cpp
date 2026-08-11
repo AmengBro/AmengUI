@@ -65,7 +65,7 @@ bool PasswdShadow::ensure_loaded() const {
     if (read_lines(passwd_win_path(), lines)) {
         for (const auto& raw : lines) {
             if (raw.empty() || raw[0] == '#') continue;
-            // passwd 格式: name:x:uid:gid:gecos:home:shell
+            // passwd 格式: name:perm:uid:gid:gecos:home:shell（perm ∈ root/sudo/user）
             auto colon = raw.find(':');
             if (colon == std::string::npos || colon == 0) continue;
             passwd_users_.emplace_back(raw.substr(0, colon), "");
@@ -140,7 +140,7 @@ bool PasswdShadow::create_initial_root(const std::string& root_hash_hex) const {
     if (!passwd_exists()) {
         std::ofstream pw(passwd_path, std::ios::binary);
         if (!pw.is_open()) return false;
-        pw << "root:x:0:0:root:/root:/bin/amsys\n";
+        pw << "root:root:0:0:root:/root:/bin/amsys\n";
         pw.close();
         if (!pw) return false;
     } else {
@@ -149,13 +149,13 @@ bool PasswdShadow::create_initial_root(const std::string& root_hash_hex) const {
             std::ifstream pf(passwd_path);
             std::string line;
             while (std::getline(pf, line)) {
-                if (line == "root:x:0:0:root:/root:/bin/amsys") { has_root = true; break; }
+                if (line == "root:root:0:0:root:/root:/bin/amsys") { has_root = true; break; }
             }
         }
         if (!has_root) {
             std::ofstream pw(passwd_path, std::ios::binary | std::ios::app);
             if (!pw.is_open()) return false;
-            pw << "root:x:0:0:root:/root:/bin/amsys\n";
+            pw << "root:root:0:0:root:/root:/bin/amsys\n";
             pw.close();
             if (!pw) return false;
         }

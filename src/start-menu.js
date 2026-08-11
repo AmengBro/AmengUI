@@ -9,6 +9,10 @@ let isStartMenuLoading = false;
 // 右键菜单图标（发送到桌面）
 const SEND_TO_DESKTOP_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>';
+const OPEN_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>';
+const PROPERTIES_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 14V6c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v15c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5H3V6h14v8h2zM12 2H4v2h8V2zm9 9.41L19.59 10 17 12.59 14.41 10 13 11.41 15.59 14 13 16.59 14.41 18 17 15.41 19.59 18 21 16.59 18.41 14 21 11.41z"/></svg>';
 
 // 模态确认回调
 let confirmCallback = null;
@@ -229,25 +233,70 @@ function showStartMenuContextMenu(x, y, entry) {
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
 
-  const item = document.createElement('div');
-  item.className = 'context-menu-item';
-  const iconSpan = document.createElement('span');
-  iconSpan.className = 'context-menu-icon';
-  iconSpan.innerHTML = SEND_TO_DESKTOP_ICON;
-  const textSpan = document.createElement('span');
-  textSpan.textContent = '发送到桌面';
-  item.appendChild(iconSpan);
-  item.appendChild(textSpan);
-  item.addEventListener('click', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    closeContextMenu();
-    sendToDesktop(entry);
+  const items = [
+    {
+      label: '打开',
+      icon: OPEN_ICON,
+      action: () => {
+        hideMenu();
+        window.electronAPI.app.launch(entry.start).then((r) => {
+          if (r && !r.success) alert(`启动失败: ${r.error}`);
+        });
+      },
+    },
+    null,
+    { label: '发送到桌面', icon: SEND_TO_DESKTOP_ICON, action: () => sendToDesktop(entry) },
+    null,
+    { label: '属性', icon: PROPERTIES_ICON, action: () => showStartMenuProperties(entry) },
+  ];
+
+  items.forEach((it) => {
+    if (it === null) {
+      const sep = document.createElement('div');
+      sep.className = 'context-menu-separator';
+      menu.appendChild(sep);
+      return;
+    }
+    const item = document.createElement('div');
+    item.className = 'context-menu-item';
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'context-menu-icon';
+    iconSpan.innerHTML = it.icon;
+    const textSpan = document.createElement('span');
+    textSpan.textContent = it.label;
+    item.appendChild(iconSpan);
+    item.appendChild(textSpan);
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      closeContextMenu();
+      it.action();
+    });
+    menu.appendChild(item);
   });
-  menu.appendChild(item);
   document.body.appendChild(menu);
   document.addEventListener('click', closeContextMenu);
   document.addEventListener('contextmenu', closeContextMenu);
+}
+
+async function showStartMenuProperties(entry) {
+  try {
+    const appInfo = await getAppInfo(entry.start);
+    const userId = await getCurrentUserId();
+    const settings = userId ? await window.electronAPI.config.getSettings(userId) : null;
+    const appData = {
+      name: entry.name,
+      start: entry.start,
+      description: appInfo ? (appInfo.description || '') : '',
+      exePath: appInfo ? (appInfo.exePath || '') : '',
+      icon: appInfo ? (appInfo.icon || '') : '',
+      theme: (settings && settings.theme) || 'dark',
+      accentColor: (settings && settings.accentColor) || '#0078D4'
+    };
+    await window.electronAPI.properties.show(appData);
+  } catch (error) {
+    console.error('[StartMenu] Error showing properties:', error);
+  }
 }
 
 /**

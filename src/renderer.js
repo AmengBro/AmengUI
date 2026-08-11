@@ -83,6 +83,15 @@ function setupEventListeners() {
   // 密码显示/隐藏切换
   document.getElementById('toggle-password').addEventListener('click', togglePassword);
   
+  // 无密码用户：密码输入框隐藏时，按 Enter 直接登录（避免与输入框自身回车重复触发）
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const passwordSection = document.getElementById('password-section');
+    if (passwordSection && passwordSection.style.display === 'none') {
+      handleLogin();
+    }
+  });
+  
   // 背景更改按钮（已隐藏，保留功能）
   document.getElementById('change-bg-btn').addEventListener('click', changeBackground);
   
@@ -221,6 +230,13 @@ async function selectUser(user) {
   
   // 加载该用户的个性化设置
   settings = await window.electronAPI.config.getSettings(user.userid);
+  
+  // 无密码用户隐藏密码输入框，点击登录按钮直接登录
+  const passwordSection = document.getElementById('password-section');
+  const hasPassword = await window.electronAPI.config.getUserHasPassword(user.userid);
+  if (passwordSection) {
+    passwordSection.style.display = hasPassword ? '' : 'none';
+  }
   
   // 应用主题
   applyTheme(settings.theme || 'dark');

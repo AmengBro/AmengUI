@@ -934,6 +934,11 @@ function Invoke-FlightToggle {
 
 function Get-BtRadioEnabled {
   # 蓝牙无线电软件状态（受飞行模式影响）；设备级状态见 Get-BtState
+  if ($script:IsPwsh7) {
+    $r = Invoke-WinrtDelegated 'btRadioStatus'
+    if ($r -and $null -ne $r.radioEnabled) { return [bool]$r.radioEnabled }
+    return $null
+  }
   try {
     $radios = @(Get-FlightRadios)
     $bt = @($radios | Where-Object { ([string]$_.Kind) -eq 'Bluetooth' })[0]
@@ -942,6 +947,19 @@ function Get-BtRadioEnabled {
   } catch {
     return $null
   }
+}
+
+function Invoke-WinrtDelegated {
+  param([string]$op)
+  # PowerShell 7 无法直接加载 WinRT 类型（.NET Core 不支持 ContentType=WindowsRuntime 投影），
+  # 委托系统 Windows PowerShell 5.1 执行 WinRT 操作（5.1 为 Windows 系统自带组件）。
+  try {
+    $helper = Join-Path $PSScriptRoot 'winrt.ps1'
+    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $helper -Op $op 2>$null
+    $json = ($out | Out-String).Trim()
+    if ($json) { return ($json | ConvertFrom-Json) }
+  } catch { }
+  return [pscustomobject]@{ success = $false; enabled = $null; error = 'unsupported' }
 }
 
 function Get-BrightnessValue {
@@ -1575,13 +1593,13 @@ function Invoke-SysCommand {
   } elseif ($cmd -eq 'btDisconnect') {
     Invoke-BtDisconnectCmd ([string]$cmdArgs[0])
   } elseif ($cmd -eq 'flightToggle') {
-    Invoke-FlightToggle
+    if ($script:IsPwsh7) { Invoke-WinrtDelegated 'flightToggle' } else { Invoke-FlightToggle }
   } elseif ($cmd -eq 'flightStatus') {
-    Get-FlightModeStatus
+    if ($script:IsPwsh7) { Invoke-WinrtDelegated 'flightStatus' } else { Get-FlightModeStatus }
   } elseif ($cmd -eq 'hotspotStatus') {
-    Get-HotspotStatus
+    if ($script:IsPwsh7) { Invoke-WinrtDelegated 'hotspotStatus' } else { Get-HotspotStatus }
   } elseif ($cmd -eq 'hotspotToggle') {
-    Invoke-HotspotToggle
+    if ($script:IsPwsh7) { Invoke-WinrtDelegated 'hotspotToggle' } else { Invoke-HotspotToggle }
   } elseif ($cmd -eq 'getBrightness') {
     Get-BrightnessValue
   } elseif ($cmd -eq 'setBrightness') {

@@ -432,10 +432,6 @@ async function loadDesktopApps() {
     // 获取当前用户的桌面配置
     const desktopConfig = await window.electronAPI.config.getUserDesktop(currentUserId);
     console.log('[DesktopApps] Desktop config:', JSON.stringify(desktopConfig));
-    if (!desktopConfig || !desktopConfig.desktopapp || desktopConfig.desktopapp.length === 0) {
-      console.log('[DesktopApps] No desktop apps found');
-      return;
-    }
     
     // 创建桌面应用容器
     const container = document.createElement('div');
@@ -453,6 +449,12 @@ async function loadDesktopApps() {
         showContextMenu(e.clientX, e.clientY, null);
       }
     });
+
+    // 无图标时容器仍需保留，保证空白处右键菜单可用
+    if (!desktopConfig || !desktopConfig.desktopapp || desktopConfig.desktopapp.length === 0) {
+      console.log('[DesktopApps] No desktop apps found, keeping empty container for right-click');
+      return;
+    }
     
     // 渲染每个桌面应用
     for (const app of desktopConfig.desktopapp) {

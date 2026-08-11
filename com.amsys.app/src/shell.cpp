@@ -205,13 +205,15 @@ std::string Shell::expand_vars(const std::string& s) const {
 }
 
 // Ensure /etc/passwd exists and lists all known users.
-// Format (Unix convention, no passwords):
-//   username:x:UID:GID:comment:home:shell
-//   root:x:0:0:root:/root:/bin/amsys
-//   name:x:1000:1000:name:/home/name:/bin/amsys
+// Format:
+//   username:PERM:UID:GID:comment:home:shell
+//   root:root:0:0:root:/root:/bin/amsys
+//   name:user:1000:1000:name:/home/name:/bin/amsys
+// PERM ∈ root/sudo/user（第 2 字段原为密码占位 x；密码在 /etc/shadow，
+// 该位现用于记录用户权限；新用户默认 user，重建时保留已有权限值）
 void Shell::ensure_passwd() {
     std::string passwd_path = path_mgr_.get_root() + "\\etc\\passwd";
-    std::map<std::string, int> users;  // username -> uid
+    std::map<std::string, std::pair<int, std::string>> users;  // username -> (uid, permission)
     int max_uid = 0;
 
     // Read existing passwd
@@ -223,7 +225,12 @@ void Shell::ensure_passwd() {
                 std::vector<std::string> parts = split(line, ':');
                 if (parts.size() >= 3) {
                     int uid = std::atoi(parts[2].c_str());
-                    users[parts[0]] = uid;
+                    std::string perm;
+                    if (parts.size() >= 2 &&
+                        (parts[1] == "root" || parts[1] == "sudo" || parts[1] == "user")) {
+                        perm = parts[1];
+                    }
+                    users[parts[0]] = {uid, perm};
                     if (uid > max_uid) max_uid = uid;
                 }
             }
@@ -251,7 +258,7 @@ void Shell::ensure_passwd() {
                 name = std::string(name.c_str());
                 if (!name.empty() && users.count(name) == 0) {
                     int uid = std::max(1000, max_uid + 1);
-                    users[name] = uid;
+                    users[name] = {uid, ""};  // 无权限信息，写出时默认 user
                     max_uid = uid;
                 }
             } while (FindNextFileW(hf, &fd) != 0);
@@ -260,25 +267,27 @@ void Shell::ensure_passwd() {
     }
 
     // Ensure root and current user are present
-    if (users.count("root") == 0) users["root"] = 0;
+    if (users.count("root") == 0) users["root"] = {0, "root"};
+    else if (users["root"].second.empty()) users["root"].second = "root";
     if (username_ != "root" && users.count(username_) == 0) {
         int uid = std::max(1000, max_uid + 1);
-        users[username_] = uid;
+        users[username_] = {uid, permission_};  // 当前用户权限取自 ~/.config/amsys/user.yaml
         max_uid = uid;
     }
 
     // Write back: root first, then others sorted by UID
     std::ofstream of(passwd_path, std::ios::binary);
-    of << "root:x:0:0:root:/root:/bin/amsys\n";
+    of << "root:" << users["root"].second << ":0:0:root:/root:/bin/amsys\n";
     std::vector<std::pair<int, std::string>> others;
-    for (const auto& [name, uid] : users) {
+    for (const auto& [name, up] : users) {
         if (name == "root") continue;
-        others.push_back({uid, name});
+        others.push_back({up.first, name});
     }
     std::sort(others.begin(), others.end());
     for (const auto& [uid, name] : others) {
-        std::string home = (name == "root") ? "/root" : "/home/" + name;
-        of << name << ":x:" << uid << ":" << uid << ":" << name
+        std::string home = "/home/" + name;
+        std::string perm = users[name].second.empty() ? "user" : users[name].second;
+        of << name << ":" << perm << ":" << uid << ":" << uid << ":" << name
            << ":" << home << ":/bin/amsys\n";
     }
     of.close();

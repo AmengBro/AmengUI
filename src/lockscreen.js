@@ -1,5 +1,7 @@
 let currentUserId = null;
 let currentUsername = '';
+let hasPassword = true;
+let isUnlocking = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -7,6 +9,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (userData) {
       currentUserId = userData.userId;
       currentUsername = userData.username;
+      hasPassword = !!userData.hasPassword;
       
       if (userData.theme === 'bright') {
         document.body.classList.add('theme-bright');
@@ -30,6 +33,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       
       document.getElementById('username-display').textContent = currentUsername;
+      
+      // 无密码用户：隐藏密码输入框与切换按钮，点击登录按钮直接解锁
+      if (!hasPassword) {
+        const passwordSection = document.getElementById('password-section');
+        if (passwordSection) {
+          passwordSection.style.display = 'none';
+        }
+      }
       
       const avatarContainer = document.querySelector('.user-avatar');
       const defaultAvatar = avatarContainer.querySelector('svg');
@@ -62,6 +73,13 @@ function bindEvents() {
     }
   });
   
+  // 无密码用户：输入框已隐藏，按 Enter 同样触发解锁
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !hasPassword) {
+      unlock();
+    }
+  });
+  
   togglePasswordBtn.addEventListener('click', () => {
     const type = passwordInput.type === 'password' ? 'text' : 'password';
     passwordInput.type = type;
@@ -72,19 +90,27 @@ function bindEvents() {
 }
 
 async function unlock() {
+  if (isUnlocking) return;
+  
   const password = document.getElementById('password-input').value;
   const loginBtn = document.getElementById('login-btn');
   const errorMsg = document.getElementById('error-msg');
   
-  if (!password) {
+  // 用户设置过密码但未输入时提示；无密码用户允许空密码直接解锁
+  if (hasPassword && !password) {
     showError('请输入密码');
     return;
   }
   
+  isUnlocking = true;
   loginBtn.disabled = true;
+  loginBtn.classList.add('loading');
   errorMsg.textContent = '';
   
   try {
+    // 与登录页一致的伪加载
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
     const result = await window.electronAPI.config.verifyUser(currentUsername, password);
     
     if (result) {
@@ -96,7 +122,9 @@ async function unlock() {
     console.error('Unlock error:', err);
     showError('验证失败');
   } finally {
+    isUnlocking = false;
     loginBtn.disabled = false;
+    loginBtn.classList.remove('loading');
   }
 }
 

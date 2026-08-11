@@ -841,6 +841,167 @@ netsh interface set interface name="WLAN" admin=enabled
 
 ---
 
+**控制中心尺寸/桌面右键/开始菜单右键（第十四轮）**：
+- 音量合成器开关后面板尺寸残留：`closeMixer` 改为 await resize(320,420)；
+  开发模式 `control-center:show` 重载后重置窗口为 320x420（重载必然回主视图）
+- 桌面无图标时空白右键失效：`loadDesktopApps` 此前在无应用时提前 return，
+  容器与 contextmenu 监听从未创建；改为**先建容器再判断**，空桌面也可右键
+- 开始菜单程序右键菜单新增"打开"（launch）与"属性"（properties 窗口），
+  带分隔符与图标；`showStartMenuProperties` 复用 getAppInfo/getSettings 组装数据
+- **混音器尺寸方案定稿（第十五轮）**：用户要求**打开音量合成器不再改变面板尺寸**。
+  移除 `openMixer/closeMixer` 的全部 resize 调用，所有视图恒定 320x420；
+  混音器会话列表在 320 宽度下滚动显示，杜绝尺寸残留（原 340x520 切换方案废弃）
+
+---
+
+### 23. 配置目录迁移至 amsys 虚拟根 + 密码/用户名同步（MD5 无盐 + 完全重建）
+
+**用户需求**：
+> 为了与后端接轨，请把 ./config 目录改为 amsys 虚拟根的 /etc/system/core。
+> 每个用户的密码会在启动时从 config 同步到 /etc/shadow，用户名也会同步到 passwd。
+> 两个配置文件存储格式参考 amsys README 的说明。
+
+**决策确认**：
+1. 同步策略 = **完全重建**（以 AmengUI config 为唯一权威，清掉 amsys 其他用户）
+2. 旧 `./config/` 目录**保留**，迁移后归档为 tar
+3. UID 分配**遵循 amsys 规则**（同用户名沿用原 UID，新用户从 1000 递增）
+
+**实现方案**（`src/config.js`）：
+- `getAmsysRoot()`：同步读取 `config.ini` 的 `[system] root`（相对路径相对 APP_ROOT 解析，
+  与 amsys 路径转换器逻辑一致），失败回退项目内 `rootdir`；导出 `AMSYS_ROOT`
+- `CONFIG_DIR` 由 `{APP_ROOT}/config` 改为 `{AMSYS_ROOT}/etc/system/core`，
+  所有读写（users.json / system.json / {userid}/config.json / desktop.json）自动跟随
+- `syncPasswdShadow()`：完全重建 amsys 的 `/etc/passwd` 与 `/etc/shadow`
+  - passwd（7 字段）：`username:PERM:UID:GID:comment:home:/bin/amsys`，
+    PERM 为权限（root/sudo/user）记录在第 2 位，按 UID 排序
+  - shadow（8 字段）：`username:md5hash:0:99999:7:::`，空密码字段留空
+  - UID：root（permi=root）固定 0、home `/root`；普通用户从 1000 递增，
+    同名用户沿用现有 passwd 的 UID（跨重建保持一致），新用户取空闲值
+  - 空用户名（脏数据，如 userid 1 空名）不写入 passwd/shadow
+  - 写入前备份现有文件为 `.bak`（沿用 amsys 的 shadow.bak 惯例）
+- 同步触发：启动 `initConfig()` + `addUser`/`updateUser`/`deleteUser`/`setPermission` 后
+- `migrateLegacyConfig()`：幂等迁移旧 `./config` 数据到新位置，并用 Windows 自带 tar
+  归档为 `config-backup-{ts}.tar`（输出文件名用相对路径 + cwd，
+  避免含盘符冒号的绝对路径被 bsdtar 误判为 host:path 远程主机）；
+  顺带清理旧目录中的无效空目录（如 `undefined`）
+
+**实测**（Node 直测，全部通过）：
+- 迁移：旧 config → `D:\Codewhale\workspace\amsys\root\etc\system\core`，
+  目录结构（users.json/system.json/{userid}/config.json/desktop.json）完整；
+  幂等（二次调用返回 false）；`undefined` 空目录被清理；tar 归档成功
+- 同步：全新环境 UID 从 1000 分配（Ad=1000/root1=1001/root2=1002）；
+  root 固定 UID 0 且 home=/root；同名用户沿用旧 UID
+- 增删改链路：addUser 即时写入 passwd/shadow；updateUser 改密 → shadow 哈希更新；
+  提升 root → passwd home 变 /root 且 UID 0；deleteUser 同时从两文件移除
+- 空密码用户 shadow 行 `user::0:99999:7:::`；空用户名不进 passwd
+- 登录回归：root/root、Ad/123456 均通过；桌面配置读写正常（user2 桌面 7 个应用）
+
+**说明**：密码仍是无盐 MD5（`config.json` 与 `/etc/shadow` 共用同一密文），
+与 amsys 后端格式一致；`users.json` 仍不存密码。
+
+**后续修复（第二轮反馈）**：
+- **运行时 config 变更即时同步**：原实现只在启动（`initConfig`）与增删改时同步，
+  用户在应用运行中直接改 `config.json` 的 username 后不会同步到 passwd。
+  新增 `startConfigWatch()`：每 2 秒轮询 `users.json` 与各 `{userid}/config.json`
+  的 mtime，变化时自动重建 users.json 并同步 passwd/shadow；
+  `index.js` 在 `initConfig()` 后启动、`before-quit` 时停止
+- **UID 冲突修复**：原分配逻辑 `uidSet` 初始为空，新用户直接抢占 1000，
+  与同名沿用用户冲突（复现：rot 与 Ad 同为 UID 1000）。改为两遍分配——
+  第一遍收集 root 固定 0 与同名沿用候选并按 userid 排序、同一 UID 只给第一个；
+  第二遍其余用户从 1000 取空闲值；损坏数据自动收敛且二次同步幂等稳定
+- **幂等写盘**：`saveUsers` 与 `syncPasswdShadow` 内容无变化时不写盘，
+  消除监听自触发循环（同步重写 users.json → 触发再同步）
+
+**实测**：监听启动后改 `config/1/config.json` 的 username → 约 2 秒内自动同步
+到 passwd（仅触发一次，无自触发循环）；UID 重复检测通过；二次同步稳定。
+
+---
+
+### 24. /etc/passwd 权限字段迁移（第 2 位记录权限）
+
+**用户反馈**：
+> /etc/passwd 原本用来记录用户权限的那一位现在变成了用户昵称记录位，
+> 需要把原来的密码记录位（如今全部为 x 的那一位）用于记录用户权限，
+> 提供 root、sudo 和 user 三种权限。
+
+**背景**：
+- 旧格式 `username:x:UID:GID:comment:home:/bin/amsys` 中第 2 位是密码占位 `x`
+  （密码实际存于 `/etc/shadow`），第 5 位 comment 被用于存放用户昵称（用户名）
+- 权限此前只存在于 `users.json` 的 `permi` 字段，passwd 中无权限信息
+
+**变更**：
+- passwd 新格式（7 字段）：`username:PERM:UID:GID:nickname:home:/bin/amsys`
+  - 第 2 位由密码占位 `x` 改为权限字段 PERM，取值 **root / sudo / user**
+  - 第 5 位 comment 继续作为用户昵称
+  - 权限不在三值范围内的旧数据（含 guest）统一归一为 `user`
+- `setPermission()` 权限集合由 root/sudo/user/guest 收敛为 **root/sudo/user**
+- 写入端同步更新：
+  - `src/config.js syncPasswdShadow()`：从 `users.json` 按 `permi` 写入第 2 位
+  - `com.amsys.app/src/shell.cpp ensure_passwd()`：重建时保留已有权限字段，
+    新用户默认 `user`、root 固定 `root`，当前用户取 `user.yaml` 的 permission
+  - `com.amsys.app/launcher/passwd_shadow.cpp create_initial_root()`：root 条目
+    改为 `root:root:0:0:root:/root:/bin/amsys`
+- 登录验证不受影响：launcher 只读取 passwd 第 1 位用户名与 shadow 哈希
+
+**说明**：amsys shell 自身的命令级权限仍以 `~/.config/amsys/user.yaml` 的
+`permission` 为准（root/sudo 才能执行特权命令）；passwd 第 2 位是应用侧统一的
+权限记录位，两者暂未互相读取。
+
+---
+
+### 25. 身份数据源反转：passwd/shadow 权威，config.json 改为读取方
+
+**用户需求**：
+> 把每个用户 config.json 里面的数据改为从 passwd 和 shadow 文件读取，
+> 而不是从 config 里面读取值去覆盖。userid 直接继承 UID，username 继承
+> passwd 的 nick 字段，permi 继承 passwd 的 permission，password 继承
+> shadow 的 md5hash。
+
+**决策确认**：
+1. 用户增删改由 AmengUI 直接写 passwd/shadow（方案 1，不调 amsys 命令，
+   因为 amsys 管道/命令不提供完整操作）
+2. amsys 启动时会自行检查并同步 user.yaml（amsys 侧已完成，AmengUI 不改其代码）
+3. userid 即 UID，config 目录以 UID 命名（如 `etc/system/core/1000`）
+
+**实现**（`src/config.js`）：
+- 删除原 `syncPasswdShadow()`（config → passwd/shadow 的完全重建覆盖方向）
+  与 `syncUsersFromConfig()`/`ensureLoginConfig()`，方向整体反转
+- 新增权威数据源层：
+  - `readPasswdShadow()`：解析 passwd（`username:permission:UID:GID:nick:home:shell`）
+    与 shadow（`username:md5hash:min:max:warn:inactive:expire:reserved`），
+    产出 `{ userid(UID), loginName, username(nick), permi, password, gid, home, shell }`
+  - `ensurePasswdShadowBootstrap()`：文件缺失时初始化 root（密码 root）
+  - `migrateUserDirsToUid()`：一次性把 `config/{旧 userid}` 按用户名（nick）
+    重映射到 `config/{UID}`，并重映射 system.json 的 lastLoginUserId
+  - `syncUsersFromPasswdShadow()`：重建 users.json 聚合视图 +
+    回填各 config.json 的 login 块（保留 photo/profile/desktop）
+  - `rewriteAuthUser()`：写入层，只改目标用户行，保留 passwd/shadow 中
+    其他未管理用户与顺序
+- 增删改查全部改为以 passwd/shadow 为准：
+  - `addUser`：写入 passwd/shadow（UID 从 1000 取空闲），用户名重复返回 null
+  - `updateUser`：改用户名（同时改字段 1 与 nick、迁移 home 目录）、改密（shadow）、
+    改权限（passwd 第 2 位）；root 恒为 root、不可删除
+  - `deleteUser`：从 passwd/shadow 移除行 + 删除 config 目录
+  - `setPermission`：直接改 passwd 第 2 位（root 用户强制 root）
+  - `verifyUser`：按 nick 匹配，直接比对 shadow md5hash（空哈希=空密码，
+    `!`/`*`=锁定），不再读 config.json 密码
+- 运行时监听反转：`startConfigWatch()` 改为轮询 passwd/shadow 的 mtime，
+  变化时执行 `syncUsersFromPasswdShadow()`
+
+**实测**（Node 直测，全部通过）：
+- 5 个旧目录 `core/1..5` 按用户名迁移到 `core/0/1000/1001/1002/1003`，
+  Ad 的主题色（#FF6B00）等 profile 数据完整保留；lastLoginUserId 1→1000
+- 登录回归：root/root、Ad/123456、rot/空密码 全部通过；错误密码拒绝
+- 增删改回路：addUser（UID 分配/重复拒绝）→ setPermission（passwd 第 2 位
+  变为 sudo）→ 登录校验通过 → updateUser 改名（passwd 字段 1/5 与 home 同步）→
+  deleteUser（passwd/shadow/config 目录全清）
+- 删除 root 被拒绝
+
+**顺带清理**：amsys 此前用错误编码扫描 home 目录产生的乱码用户
+（如 `娴嬭瘯涓枃鐩綍`）已从 passwd/shadow 白名单清除，对应乱码 home 目录与
+孤儿 config 目录隔离到 amsys root 下的 `.garbage-20260811/`（未删除，可恢复）；
+amys 侧如未修复 home 扫描编码，后续仍可能再生成，建议在 amsys 侧跟进。
+
 ## 三、待解决问题与未来方向
 
 ### 已知不足

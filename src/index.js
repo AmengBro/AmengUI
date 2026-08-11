@@ -263,6 +263,8 @@ function forceWindowToBottomDelayed() {
 app.whenReady().then(async () => {
   // 初始化配置：迁移旧数据并确保用户目录存在
   await initConfig();
+  // 运行时监听：passwd/shadow 变化后自动重建 users.json 并刷新 config.json 的 login 块
+  config.startConfigWatch();
   createWindow();
   // 后台预热：启动音频/系统常驻服务并预取能力，避免用户打开控制中心时冷启动等待
   prewarmSystemServices();
@@ -276,13 +278,19 @@ app.whenReady().then(async () => {
 });
 
 /**
- * 初始化配置：迁移旧数据并确保用户目录存在
+ * 初始化配置：迁移旧数据、同步 amsys 认证文件并确保用户目录存在
  */
 async function initConfig() {
   try {
-    // 启动同步：以各用户 config/{userid}/config.json 的 login 为准重建 users.json，
-    // 手动改过 config.json 后重启即可生效（users.json 只是聚合视图）
-    await config.syncUsersFromConfig();
+    // 迁移旧版 ./config 数据到 amsys 虚拟根 /etc/system/core（含 tar 归档）
+    await config.migrateLegacyConfig();
+    
+    // /etc/passwd 与 /etc/shadow 为权威：
+    // 1) 缺失时初始化 root；2) 用户配置目录按 UID 重映射（一次性）；
+    // 3) 从认证文件重建 users.json 聚合视图并刷新各 config.json 的 login 块
+    await config.ensurePasswdShadowBootstrap();
+    await config.migrateUserDirsToUid();
+    await config.syncUsersFromPasswdShadow();
 
     const users = await config.getUsers();
     
@@ -292,7 +300,7 @@ async function initConfig() {
     }
     
     // 迁移旧的 settings.json 到第一个用户的配置（如果存在旧数据且用户目录没有配置）
-    const oldSettingsPath = path.join(__dirname, '../config/settings.json');
+    const oldSettingsPath = path.join(config.CONFIG_DIR, 'settings.json');
     try {
       const oldData = await fs.readFile(oldSettingsPath, 'utf8');
       const oldSettings = JSON.parse(oldData);
@@ -326,6 +334,7 @@ app.on('window-all-closed', () => {
 
 // 退出前关闭常驻服务进程
 app.on('before-quit', () => {
+  config.stopConfigWatch();
   if (audioServer) {
     audioServer.kill();
   }
@@ -343,6 +352,15 @@ ipcMain.handle('config:getUsers', async () => {
 
 ipcMain.handle('config:getSettings', async (_, userId) => {
   return await config.getSettings(userId);
+});
+
+ipcMain.handle('config:getUserHasPassword', async (_, userId) => {
+  try {
+    const userConfig = await config.getUserConfig(userId);
+    return !!(userConfig.login && userConfig.login.password);
+  } catch {
+    return false;
+  }
 });
 
 ipcMain.handle('config:verifyUser', async (_, username, password) => {
@@ -1551,11 +1569,13 @@ ipcMain.handle('lockscreen:init', async () => {
   if (currentLoggedInUser) {
     const settings = await config.getSettings(currentLoggedInUser.userid);
     const desktop = await config.getUserDesktop(currentLoggedInUser.userid);
+    const userConfig = await config.getUserConfig(currentLoggedInUser.userid);
     
     return {
       userId: currentLoggedInUser.userid,
       username: currentLoggedInUser.username,
       avatar: currentLoggedInUser.photo || null,
+      hasPassword: !!(userConfig.login && userConfig.login.password),
       theme: settings.theme || 'dark',
       accentColor: settings.accentColor || '#0078D4',
       background: desktop.desktopbg || null
@@ -1748,6 +1768,12 @@ ipcMain.handle('control-center:show', async () => {
     // 避免"窗口创建一次后永久复用"导致旧逻辑残留（历史调试陷阱）
     if (!app.isPackaged) {
       controlCenterWindow.webContents.reload();
+      // 重载后必然回到主视图，重置为原始尺寸，避免混音器残留的 340x520
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { width: sw, height: sh } = primaryDisplay.workAreaSize;
+      const BOTTOM_MARGIN = 68;
+      controlCenterWindow.setSize(320, 420);
+      controlCenterWindow.setPosition(sw - 320 - 16, sh - 420 - BOTTOM_MARGIN);
     }
     // 每次显示重新断言置顶，防止某些情况下丢失 WS_EX_TOPMOST
     controlCenterWindow.setAlwaysOnTop(true);

@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getUsers: () => ipcRenderer.invoke('config:getUsers'),
     /** 获取应用设置 */
     getSettings: (userId) => ipcRenderer.invoke('config:getSettings', userId),
+    /** 查询用户是否设置了密码 */
+    getUserHasPassword: (userId) => ipcRenderer.invoke('config:getUserHasPassword', userId),
     /** 验证用户登录 */
     verifyUser: (username, password) => ipcRenderer.invoke('config:verifyUser', username, password),
     /** 添加新用户 */

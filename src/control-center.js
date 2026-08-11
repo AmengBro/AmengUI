@@ -277,11 +277,7 @@ async function openMixer() {
   $('view-main').classList.add('hidden');
   $('view-mixer').classList.remove('hidden');
   $('mixer-error').classList.add('hidden');
-  try {
-    await window.electronAPI.controlCenter.resize(340, 520);
-  } catch (e) {
-    console.error('Failed to resize control center:', e);
-  }
+  // 保持窗口 320x420，不再因混音器改变面板尺寸（历史：尺寸残留问题）
   await loadMixer(true);
   if (mixerRefreshTimer) clearInterval(mixerRefreshTimer);
   mixerRefreshTimer = setInterval(() => {
@@ -300,7 +296,6 @@ function closeMixer() {
   $('device-dropdown').classList.add('hidden');
   $('view-mixer').classList.add('hidden');
   $('view-main').classList.remove('hidden');
-  window.electronAPI.controlCenter.resize(320, 420).catch(() => {});
 }
 
 function showMixerError(message) {

@@ -16,7 +16,7 @@ AmengUI 的核心目标是构建一个**桌面环境模拟器**，而非简单�
 
 ### 核心功能
 - **用户登录系统**：多用户管理，密码验证登录，记住上次登录用户
-- **用户管理**：添加、删除、编辑用户信息，支持权限分级（root/sudo/user/guest）
+- **用户管理**：添加、删除、编辑用户信息，支持权限分级（root/sudo/user）
 - **桌面环境**：完整的桌面工作区，支持拖拽排列桌面图标
 - **应用启动**：通过 `.app` 配置文件定义和启动真实的 Windows 应用程序，终端类程序自动以新窗口启动
 - **任务栏**：支持浮动/停靠两种模式，带时间和日期显示，集成网络/音量/电池图标
@@ -123,12 +123,16 @@ npm run make
 
 ### 用户列表 (config/users.json)
 
+> `users.json` 是 `/etc/passwd` 的**聚合视图**，由 `syncUsersFromPasswdShadow()`
+> 从 passwd/shadow 重建，`userid` 即 passwd 第 3 位 UID，`username` 取第 5 位昵称 nick，
+> `permi` 取第 2 位权限。手动修改请直接改 passwd/shadow，应用每 2 秒监听自动跟随。
+
 ```json
 {
   "users": [
     {
-      "userid": 1,
-      "username": "管理员",
+      "userid": 0,
+      "username": "root",
       "photo": null,
       "permi": "root"
     }
@@ -138,14 +142,18 @@ npm run make
 
 ### 用户配置 (config/{userid}/config.json)
 
+> 目录以 UID 命名（如 `config/1000`）。`login` 块中的 `userid/username/password/permi`
+> 由 passwd/shadow 读取后回填（password 为 shadow 第 2 位 md5hash），`photo` 与
+> `profile`（主题、背景）仍由应用本地管理。
+
 ```json
 {
   "login": {
-    "userid": 1,
-    "username": "管理员",
-    "password": "123456",
+    "userid": 1000,
+    "username": "rot",
+    "password": "e10adc3949ba59abbe56e057f20f883e",
     "photo": null,
-    "permi": "root"
+    "permi": "user"
   },
   "profile": {
     "loginbg": null,
@@ -181,6 +189,40 @@ npm run make
 }
 ```
 
+### 用户身份数据源（/etc/passwd 与 /etc/shadow）
+
+**`/etc/passwd` 与 `/etc/shadow` 是用户身份/凭证的唯一权威**。AmengUI 启动及
+passwd/shadow 变化时，`src/config.js` 从中读取数据并重建 `users.json` 聚合视图、
+回填各用户 `config.json` 的 login 块；用户增删改（addUser/updateUser/deleteUser/
+setPermission）也直接写这两个文件，不再从 config 反向覆盖。
+
+`/etc/passwd` 使用 7 字段格式：
+
+```
+username:permission:UID:GID:nick:home:/bin/amsys
+```
+
+- `permission` 为权限字段，取值 **root / sudo / user**，记录在第 2 位
+- 第 5 位 `nick` 为用户昵称，即应用内显示的 `username`
+- 应用内 `userid` 直接继承第 3 位 UID；`root` 固定 UID/GID=0、home 为 `/root`
+
+`/etc/shadow` 使用 8 字段格式：
+
+```
+username:md5hash:min:max:warn:inactive:expire:reserved
+```
+
+密码以无盐 MD5 存于第 2 位，登录校验直接比对 shadow；空哈希表示空密码，
+`!` / `*` 表示账户锁定。
+
+示例（root / sudo / user 三种权限各一行）：
+
+```
+root:root:0:0:root:/root:/bin/amsys
+Ad:sudo:1003:1003:Ad:/home/Ad:/bin/amsys
+rot:user:1000:1000:rot:/home/rot:/bin/amsys
+```
+
 ### 应用定义文件 (rootdir/usr/share/applications/*.app)
 
 ```json
@@ -205,7 +247,7 @@ npm run make
 | 方法 | 说明 | 参数 |
 |------|------|------|
 | `getUsers()` | 获取用户列表 | 无 |
-| `addUser(username, password, photo)` | 添加用户 | username, password, photo |
+| `addUser(username, password, photo, permi)` | 添加用户（直接写 passwd/shadow） | username, password, photo, permi(默认 user) |
 | `updateUser(userid, updates)` | 更新用户信息 | userid, updates |
 | `deleteUser(userId)` | 删除用户 | userId |
 | `verifyUser(username, password)` | 验证用户密码 | username, password |
