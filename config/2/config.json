@@ -4,7 +4,7 @@
     "username": "Ad",
     "password": "123456",
     "photo": null,
-    "permi": "user"
+    "permi": "sudo"
   },
   "profile": {
     "loginbg": null,

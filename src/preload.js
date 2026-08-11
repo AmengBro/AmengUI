@@ -168,10 +168,70 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // 设置窗口 API
   settings: {
-    /** 显示临时设置窗口 */
+    /** 显示设置窗口 */
     show: (settingsData) => ipcRenderer.invoke('settings:show', settingsData),
+    /** 发送设置变更（主题/强调色/任务栏/背景） */
+    change: (change) => ipcRenderer.send('settings:change', change),
     /** 注册设置变更回调 */
-    onChange: (callback) => { settingsChangeCallback = callback; }
+    onChange: (callback) => { settingsChangeCallback = callback; },
+    /** 监听窗口加载后主进程下发的主题与账户数据 */
+    onTheme: (callback) => {
+      ipcRenderer.on('settings:theme', (event, data) => callback(data));
+    },
+    /** 监听窗口最大化状态变化 */
+    onMaximized: (callback) => {
+      ipcRenderer.on('settings:maximized', (event, maximized) => callback(maximized));
+    },
+    /** 窗口控制（最小化/最大化/关闭） */
+    windowAction: (action) => ipcRenderer.send('settings:windowAction', action),
+    /** 获取设备名称与型号（带缓存） */
+    getDeviceInfo: () => ipcRenderer.invoke('settings:getDeviceInfo')
+  },
+
+  // 开始菜单浮层窗口 API
+  startMenu: {
+    /** 切换开始菜单显示/隐藏（opts: { isTaskbarFloating }），返回 { open } */
+    toggle: (opts) => ipcRenderer.invoke('startmenu:toggle', opts),
+    /** 隐藏开始菜单 */
+    hide: () => ipcRenderer.send('startmenu:hide'),
+    /** 监听开始菜单窗口加载后下发的主题与账户数据 */
+    onTheme: (callback) => {
+      ipcRenderer.on('startmenu:theme', (event, data) => callback(data));
+    },
+    /** 监听开始菜单打开/关闭状态（dashboard 同步按钮高亮） */
+    onState: (callback) => {
+      ipcRenderer.on('startmenu:state', (event, open) => callback(open));
+    },
+    /** 主进程每次显示窗口时通知重新加载应用列表 */
+    onRefresh: (callback) => {
+      ipcRenderer.on('startmenu:refresh', () => callback());
+    },
+    /** 通知主进程：已写入桌面快捷方式（由主进程转发给桌面刷新） */
+    notifyDesktopAdded: () => ipcRenderer.send('startmenu:desktop-added')
+  },
+
+  // 日历浮层窗口 API
+  calendar: {
+    /** 切换日历显示/隐藏（opts: { isTaskbarFloating }），返回 { open } */
+    toggle: (opts) => ipcRenderer.invoke('calendar:toggle', opts),
+    /** 隐藏日历 */
+    hide: () => ipcRenderer.send('calendar:hide'),
+    /** 监听日历窗口加载后下发的主题数据 */
+    onTheme: (callback) => {
+      ipcRenderer.on('calendar:theme', (event, data) => callback(data));
+    },
+    /** 监听日历打开/关闭状态（dashboard 同步按钮高亮） */
+    onState: (callback) => {
+      ipcRenderer.on('calendar:state', (event, open) => callback(open));
+    }
+  },
+
+  // 桌面窗口 API
+  desktop: {
+    /** 监听桌面刷新请求（开始菜单发送到桌面后触发） */
+    onRefresh: (callback) => {
+      ipcRenderer.on('desktop:refresh', () => callback());
+    }
   },
   
   // 屏幕锁定 API

@@ -1,0 +1,911 @@
+/* ============================================================
+   设置页面 — WinUI / Fluent 2 风格
+   所有颜色均来自 winui-theme.css 的令牌；强调色由 JS 动态覆盖。
+   ============================================================ */
+
+:root {
+  --accent-user: #0078D4;
+}
+
+html.theme-light {
+  --accent-base: var(--accent-user);
+  --accent-aa-fill: #004E8C;
+}
+
+html.theme-dark {
+  --accent-base: var(--accent-user);
+  --accent-aa-fill: color-mix(in srgb, var(--accent-user) 55%, #ffffff 45%);
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ============================================================
+   标题栏
+   ============================================================ */
+.titlebar {
+  flex: 0 0 48px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 0 0 20px;
+  background: var(--app-bg);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.search-box {
+  position: relative;
+  width: min(340px, 30vw);
+  min-width: 200px;
+  -webkit-app-region: no-drag;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
+  display: flex;
+}
+
+.search-input {
+  padding-left: 32px;
+}
+
+.window-controls {
+  margin-left: auto;
+  display: flex;
+  align-self: stretch;
+  -webkit-app-region: no-drag;
+}
+
+.win-caption-btn {
+  width: 46px;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-caption-btn:hover {
+  background: var(--subtle-secondary);
+  color: var(--text-primary);
+}
+
+.win-caption-btn:active {
+  background: var(--subtle-pressed);
+}
+
+.win-caption-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -4px;
+}
+
+.win-caption-btn.close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.win-caption-btn.close:active {
+  background: #a82317;
+}
+
+/* ============================================================
+   整体布局：左侧导航 + 右侧内容
+   ============================================================ */
+.app-root {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.nav-pane {
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--app-bg);
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--navigation-content-bg);
+  border-radius: 8px 0 0 0;
+}
+
+.page {
+  padding: 28px 36px 56px;
+  max-width: 860px;
+}
+
+.page-enter {
+  animation: page-enter var(--normal-duration) var(--fast-out-slow-in);
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter {
+    animation: none;
+  }
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 24px;
+}
+
+.page-title {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.back-btn {
+  min-width: 32px;
+  width: 32px;
+  padding: 0;
+}
+
+/* ============================================================
+   账户卡片与导航列表
+   ============================================================ */
+.account-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 12px 10px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.account-card:hover {
+  background: var(--subtle-secondary);
+}
+
+.account-card:active {
+  background: var(--subtle-pressed);
+}
+
+.account-card:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.avatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-base);
+  color: var(--accent-text);
+  overflow: hidden;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 20px;
+}
+
+.account-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-chevron {
+  color: var(--text-tertiary);
+  display: flex;
+}
+
+.nav-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 20px;
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  margin: 1px 0;
+  border: none;
+  border-radius: var(--ControlCornerRadius);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.nav-item:hover {
+  background: var(--subtle-secondary);
+}
+
+.nav-item:active {
+  background: var(--subtle-pressed);
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.nav-item.active {
+  background: var(--subtle-secondary);
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--accent-base);
+}
+
+.nav-item .nav-icon {
+  flex: 0 0 16px;
+  display: flex;
+  color: var(--text-secondary);
+}
+
+.nav-item.active .nav-icon {
+  color: var(--accent-base);
+}
+
+.nav-empty {
+  padding: 16px 24px 24px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 20px;
+}
+
+/* ============================================================
+   主页：设备卡片
+   ============================================================ */
+.device-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.device-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+}
+
+.device-logo {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-base);
+  color: var(--accent-text);
+}
+
+.device-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-name {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-model {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wifi-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--card-stroke);
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.wifi-row:hover {
+  background: var(--subtle-secondary);
+}
+
+.wifi-row:active {
+  background: var(--subtle-pressed);
+}
+
+.wifi-row:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+/* ============================================================
+   卡片通用
+   ============================================================ */
+.settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.card-block {
+  padding: 16px;
+}
+
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 68px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.card-icon {
+  flex: 0 0 18px;
+  display: flex;
+  color: var(--text-secondary);
+}
+
+.card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-title {
+  font-size: 14px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-desc {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-chevron {
+  flex: 0 0 12px;
+  display: flex;
+  color: var(--text-tertiary);
+}
+
+/* 可点击卡片行 */
+.card-row.clickable {
+  cursor: pointer;
+}
+
+.card-row.clickable:hover {
+  background: var(--subtle-secondary);
+}
+
+.card-row.clickable:active {
+  background: var(--subtle-pressed);
+}
+
+.card-row.clickable:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+/* 账户页：账户信息卡片 */
+.account-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+}
+
+.account-hero-avatar {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-base);
+  color: var(--accent-text);
+  overflow: hidden;
+}
+
+.account-hero-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-hero-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.account-hero-name {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.account-hero-role {
+  font-size: 12px;
+  line-height: 16px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--subtle-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--card-stroke);
+}
+
+/* 推荐设置卡片 */
+.reco-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.reco-header {
+  padding: 16px 20px 10px;
+}
+
+.reco-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.reco-sub {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.reco-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--card-stroke);
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.reco-row:hover {
+  background: var(--subtle-secondary);
+}
+
+.reco-row:active {
+  background: var(--subtle-pressed);
+}
+
+.reco-row:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+/* ============================================================
+   个性化：分区标题 / 选项卡片 / 色板 / 背景
+   ============================================================ */
+.section-label {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  margin: 24px 0 8px;
+}
+
+.option-group {
+  display: flex;
+  gap: 12px;
+}
+
+.option-card {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    border-color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.option-card:hover {
+  background: var(--subtle-secondary);
+}
+
+.option-card:active {
+  background: var(--subtle-pressed);
+}
+
+.option-card:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.option-card.selected {
+  border-color: var(--accent-base);
+  box-shadow: 0 0 0 1px var(--accent-base) inset;
+}
+
+.option-radio {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border: 1px solid var(--radio-border);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: border-color var(--fast-duration) var(--fast-out-slow-in),
+    background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.option-radio::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-text);
+  transform: scale(0);
+  transition: transform var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.option-card.selected .option-radio {
+  border-color: var(--accent-base);
+  background: var(--accent-base);
+}
+
+.option-card.selected .option-radio::after {
+  transform: scale(1);
+}
+
+.option-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.option-title {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.option-desc {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.accent-card {
+  margin-top: 12px;
+}
+
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 16px 12px;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: transform var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.swatch:hover {
+  transform: scale(1.12);
+}
+
+.swatch:active {
+  transform: scale(0.95);
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.swatch.selected {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.swatch.selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, transparent 42%, #ffffff 43%, #ffffff 56%, transparent 57%);
+}
+
+.custom-color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.custom-color-row input[type="color"] {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--ctrl-border);
+  border-radius: var(--ControlCornerRadius);
+  background: transparent;
+  cursor: pointer;
+}
+
+.custom-color-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+
+.custom-color-row input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.bg-preview {
+  height: 120px;
+  border: 1px solid var(--card-stroke);
+  border-radius: 4px;
+  background-color: var(--card-bg-secondary);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.bg-preview.has-bg .bg-preview-empty {
+  display: none;
+}
+
+.bg-preview-empty {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.bg-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ============================================================
+   空状态（未实现的设置页）
+   ============================================================ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 96px 32px 40px;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.empty-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 12px;
+  color: var(--text-tertiary);
+  opacity: 0.55;
+}
+
+.empty-title {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.empty-desc {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* ============================================================
+   内容对话框
+   ============================================================ */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--dialog-overlay);
+}
+
+.dialog {
+  width: min(100% - 48px, 448px);
+  background: var(--dialog-background);
+  border-radius: 8px;
+  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.28);
+  padding: 24px;
+  animation: dialog-enter var(--fast-duration) var(--fast-out-slow-in);
+}
+
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog {
+    animation: none;
+  }
+}
+
+.dialog-title {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dialog-body {
+  margin: 12px 0 20px;
+}
+
+.dialog-label {
+  display: block;
+  font-size: 14px;
+  line-height: 20px;
+  margin-bottom: 8px;
+}
+
+.dialog-hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  margin: 10px 0 0;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

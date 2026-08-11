@@ -687,6 +687,160 @@ netsh interface set interface name="WLAN" admin=enabled
 
 ---
 
+### 19. 真正的设置页面（WinUIonWeb 风格，独立窗口）
+
+**用户需求**：
+> 为这个程序制作一个真正的设置页面，提供界面布局（左侧账户 + 分类导航，右侧主页
+> 含设备卡片与推荐设置），风格设计为 WinUIonWeb，内部的设置项先为空（除了个性化）。
+
+**实现方案**：
+- 新增四文件：
+  - `src/winui-theme.css`：从 winui-web-design skill 拷贝的完整 Fluent 2 明暗主题令牌
+    （`--app-bg`/`--card-bg`/`--subtle-*`/`--accent-base` 等，全部组件只消费令牌）
+  - `src/settings.html` / `src/settings.css` / `src/settings.js`：设置页 UI 与逻辑
+- 窗口外壳：无边框 1040x720（最小 860x560，可缩放/最大化），自定义标题栏
+  （`-webkit-app-region: drag` + 搜索框 + 最小化/最大化/关闭按钮），`settings:windowAction`
+  控制窗口、`settings:maximized` 同步按钮状态
+- 布局与交互：
+  - 左侧 280px 导航：账户卡片（当前登录用户/最近登录用户：用户名、邮箱、头像、角色）
+    + 12 个分类项（主页/系统/蓝牙/网络/个性化/应用/账户/时间/游戏/辅助功能/隐私/更新），
+    选中项左侧 3px 强调色指示条 + subtle 填充；支持方向键/Home/End 键盘导航
+  - 标题栏"查找设置"实时过滤导航项，Enter 跳转首个结果，无结果显示"未找到…"
+  - 主页：设备卡片（Windows 图标 + `os.hostname()` 设备名 + WMI 型号 + 重命名对话框
+    （演示）+ WiFi 状态行（复用 `system:getWifiStatus`，显示已连接 SSID））+ 推荐设置
+    卡片（安装的应用→应用页、存储→系统页、个性化→个性化页）
+  - 个性化：背景（`dialog:selectImage` 选图/清除）、颜色（亮/暗主题单选卡 + 19 个
+    强调色预设 + 自定义取色器）、任务栏（浮动/停靠）；变更经原有 `settings:change`
+    IPC 广播给 dashboard 持久化生效
+  - 其余页面为 WinUI 风格空状态占位（"设置项为空"，后续版本填充）
+- 主进程改造：`settings:show` 由内嵌 346 行临时 HTML 改为加载 `settings.html` 并
+  `did-finish-load` 后推送 `settings:theme`（主题/强调色/任务栏/背景/设备名/账户）；
+  `settings:getDeviceInfo` 经 `getPwshPath()` + `Get-CimInstance Win32_ComputerSystem`
+  查询型号（8s 超时，会话级缓存）；`preload.js` 新增
+  `settings.change/onTheme/onMaximized/windowAction/getDeviceInfo`
+- 设计规则：控件高 32px、圆角 4px、状态填充用 subtle 令牌而非换色、卡片 8px 圆角、
+  Segoe UI Variable 字体栈、页面切换 200ms 淡入位移（`prefers-reduced-motion` 下禁用）
+
+**实测**（独立 Electron harness，stub preload）：22 项 DOM/交互断言全部通过——导航 12 项、
+默认主页、暗/亮主题切换与强调色覆盖（`--accent-user`）、色板 19 色、任务栏/主题选项同步、
+空页面生成、搜索过滤、重命名对话框预填与本地更新、`settings:change` IPC 发出；
+计算样式复核：暗色 `#202020`/内容区 `rgba(48,48,48,.3)`、亮色 `#F3F3F3`、
+选中项强调指示条与设备徽标均随 `--accent-user` 变化。
+
+**说明**：设备重命名为界面演示（确认后仅本地更新标签，系统级重命名需管理员权限，后续接入）；
+账户卡片的邮箱字段读取 `user.email`，用户模型暂无该字段时显示角色（管理员/标准用户）。
+
+---
+
+### 20. 浮层窗口层级修复：开始菜单 / 日期菜单 / 控制中心悬浮于所有窗口之上
+
+**用户反馈**：
+> 部分窗口层级不对，比如说开始菜单、日期菜单、控制中心理应可以悬浮在所有窗口之上，
+> 不应该受到置于底部的限制。
+
+**根因**：
+- 开始菜单与日历原本是 dashboard 窗口内的 DOM 弹窗，而 dashboard 每 2 秒被
+  `SetWindowPos(HWND_BOTTOM)` 压到底部（桌面必须保持在应用之下），因此弹窗必然被
+  任何应用窗口盖住——同一窗口内无法同时满足"桌面置底"与"菜单置顶"
+- 控制中心已是独立 `alwaysOnTop` 窗口，但显示时未重新断言置顶，个别场景可能丢失
+  `WS_EX_TOPMOST`
+
+**实现方案**：
+- 开始菜单与日历抽为独立置顶透明窗口（与控制中心同构）：
+  - 新增 `src/start-menu.html/css/js`（400x500，主屏左下角）与
+    `src/calendar.html/css/js`（280x384，主屏右下角），样式沿用原内嵌弹窗视觉
+  - 窗口参数：`frame:false`、`transparent:true`、`alwaysOnTop:true`、
+    `skipTaskbar:true`、不可缩放；`blur` 延迟 200ms 隐藏（避免点击任务栏按钮时
+    blur 先触发导致"关不掉"的竞态，toggle 处理器会先清掉待执行的隐藏定时器）；
+    ESC 隐藏（确认弹窗打开时除外）
+  - 位置随任务栏模式浮动/停靠（上沿 56/48px + 8px 间距），每次显示时按
+    dashboard 传入的 `isTaskbarFloating` 重新定位
+- 主进程新增 IPC：`startmenu:toggle/hide/desktop-added`、
+  `calendar:toggle/hide`；`startmenu:desktop-added` 转发 `desktop:refresh` 给
+  dashboard 刷新桌面网格；`startmenu:theme` / `calendar:theme` 在
+  `did-finish-load` 后推送主题/强调色/账户（复用 settings 的推送模式，账户解析抽为
+  `resolveAccount()` 与 settings 共用）
+- preload 新增 `startMenu` / `calendar` / `desktop.onRefresh` API；
+  dashboard 移除旧弹窗 DOM/CSS/逻辑，开始按钮/时间按钮改为 toggle 调用，并通过
+  `startmenu:state` / `calendar:state` 同步按钮高亮态
+- 控制中心加固：`control-center:show` 与 `on('show')` 时 `setAlwaysOnTop(true)` +
+  `focus()`；Shell 模式进入与锁屏时统一 `hideOverlayWindows()` 清理三个浮层
+
+**实测**（Electron harness + stub preload，28 项断言全部通过）：开始菜单用户名/应用
+列表合并去重/启动应用/右键发送到桌面/电源子菜单/ESC 与弹窗守卫；日历 42 格/月份切换/
+时钟刷新/亮色主题与强调色；dashboard 按钮 toggle 调用与高亮同步、旧弹窗移除。
+窗口置顶与 Z 序需实机人工验收（见测试计划）。
+
+**说明**：任务栏本身仍在置底桌面窗口内（最大化应用会盖住任务栏），本次按范围约定未处理；
+电源按钮"关机/重启"仍保持迁移前的确认弹窗行为，未真正调用系统关机（既有问题，未在本次修复）。
+
+---
+
+### 21. 任务栏右键菜单（设置 / 任务管理器）+ SystemInformer 路径修复
+
+**用户需求**：
+> 右击任务栏时有两个选项：设置、任务管理器。任务管理器已经通过包管理器安装。
+> （随后反馈启动报错：spawn ...\opt\com.sysinformer.app\SystemInformer.exe ENOENT）
+
+**根因**：
+- 任务栏此前没有任何右键菜单
+- 包管理器安装的 `com.sysinformer.app` 配置里的目录名写成了单点
+  `com.sysinformer.app`，而实际安装目录是**双点** `com.sysinformer..app`，
+  导致 `app:launch` spawn 时 ENOENT；图标也指向了不存在的 exe 路径
+
+**修复**：
+- 修正 `D:\Codewhale\workspace\amsys\root\usr\share\applications\com.sysinformer.app`：
+  `exePath` 改为 `...\opt\com.sysinformer..app\SystemInformer.exe`，
+  `icon` 改为同目录现成的 `icon.png`（当前生效根由 config.ini 指向 D:\Codewhale，
+  项目自身 rootdir 无此应用，无需同步）
+- dashboard 新增任务栏右键菜单（复用 `.context-menu` 样式与 `closeContextMenu()`）：
+  - **设置** → 现有 `openSettings()`（WinUI 设置窗口）
+  - **任务管理器** → `app.launch('com.sysinformer.app')`，失败弹 alert
+  - `MENU_ICONS` 新增 `taskManager` 图标；`bindTaskbarContextMenu()` 挂在
+    `#taskbar` 的 `contextmenu` 上（preventDefault + stopPropagation，与桌面
+    `#desktop-apps` 的右键菜单互不干扰）
+
+**实测**（Electron harness + stub preload，7 项断言全通过）：右键任务栏弹出菜单且含
+“设置/任务管理器”；点击任务管理器调用 `launch('com.sysinformer.app')`；点击设置调用
+`settings.show`；点击后菜单关闭；桌面空白处右键仍为桌面菜单。`.app` 修正后
+`Test-Path` 确认 exe/icon 均存在，开始菜单应用列表也会随之出现该项。
+
+**后续修复（第二轮反馈）**：
+- **右键菜单超出窗口/屏幕边缘**：新增 `clampContextMenuToViewport()`，菜单插入 DOM 后按
+  视口尺寸钳制（四周留 8px），任务栏菜单与桌面菜单统一生效
+- **启动任务管理器报后缀重复（com.sysinformer.app.app）**：任务栏菜单直接传了带 `.app`
+  的完整名，而 `app:launch` / `app:getInfo` 会无条件再拼 `.app`。在 IPC 层新增
+  `normalizeAppName()`（去掉尾部 `.app`，大小写不敏感），两个处理器统一使用，
+  带不带后缀的调用方均兼容
+- 实测：钳制 6 项断言全通过（右/下/左边缘）；`normalizeAppName` 单测覆盖
+  `com.sysinformer.app` / `com.sysinformer` / `COM.TERMINAL.APP`
+
+---
+
+### 22. 设置-账户主页（WinUI 卡片风格）
+
+**用户需求**：
+> 接下来做账户界面：账户主页 = 头像 + 用户名 + 角色徽章【管理员】（或所有者/用户），
+> 下方“账户设置”三个入口：你的信息（个人资料/头像）、登录选项（密码）、
+> 其他账户（管理此电脑上的其他用户，仅对 sudo/root 开放）。
+
+**实现方案**：
+- settings.html 新增静态账户页 `<section data-page="accounts">`（复用 WinUI 卡片体系）：
+  - 账户信息卡：64px 圆形头像（有 photo 显示图片，否则强调色占位图标）+ 20px 用户名
+    + 角色徽章胶囊（12px、subtle 填充、圆角）
+  - “账户设置”三张 SettingsCard：你的信息 / 登录选项 / 其他账户，均带图标与 chevron，
+    可点击（hover/pressed/focus 状态），子页面后续版本实现（title 提示“功能开发中”）
+- settings.js 收到 `settings:theme` 的 account 后填充主页名称/徽章/头像，并按
+  `account.permi` 控制“其他账户”卡片显隐（root/sudo 显示，user 隐藏）
+- index.js `resolveAccount()` 新增 `permi` 字段；角色徽章映射统一为
+  root/sudo → “管理员”，user → “用户”（替代原“超级用户/标准用户”文案）
+
+**实测**（Electron harness，11 项断言全通过）：标题/用户名/管理员徽章、root 可见
+“其他账户”、三行设置项与 chevron、返回按钮；切换普通用户后名称/徽章更新且“其他账户”
+隐藏；返回主页正常。
+
+---
+
 ## 三、待解决问题与未来方向
 
 ### 已知不足

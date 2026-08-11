@@ -1,0 +1,483 @@
+/* ============================================================
+   WinUI Web Theme — light/dark design tokens + base styles
+   Faithful to the WinUIonWeb reference (Fluent 2 / Windows 11).
+   Copy into any project; all components consume these tokens.
+   ============================================================ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Motion */
+  --faster-duration: 0.083s;
+  --fast-duration: 0.167s;
+  --normal-duration: 0.200s;
+  --fast-out-slow-in: cubic-bezier(0, 0, 0, 1);
+  --standard-easing: cubic-bezier(0.8, 0, 0.2, 1);
+
+  /* Surfaces */
+  --app-bg: #F3F3F3;
+  --layer-default: rgba(255, 255, 255, 0.50);
+  --flyout-bg: rgba(252, 252, 252, 0.92);
+  --flyout-border: rgba(0, 0, 0, 0.06);
+  --flyout-backdrop: blur(30px) saturate(160%) brightness(1.02);
+  --card-bg: rgba(255, 255, 255, 0.70);
+  --card-bg-secondary: rgba(246, 246, 246, 0.50);
+  --card-stroke: rgba(0, 0, 0, 0.06);
+  --dialog-background: #FCFCFC;
+  --dialog-overlay: rgba(0, 0, 0, 0.30);
+  --ctrl-solid-fill: #FFFFFF;
+
+  /* Text */
+  --text-primary: rgba(0, 0, 0, 0.89);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.45);
+  --text-disabled: rgba(0, 0, 0, 0.36);
+  --accent-text: #FFFFFF;
+  --accent-text-secondary: rgba(255, 255, 255, 0.70);
+  --accent-text-fill-color-primary: #0D4897;
+
+  /* Subtle fills (hover/press washes) */
+  --subtle-transparent: transparent;
+  --subtle-secondary: rgba(0, 0, 0, 0.0373);
+  --subtle-tertiary: rgba(0, 0, 0, 0.0241);
+  --subtle-pressed: rgba(0, 0, 0, 0.06);
+
+  /* Control fills */
+  --ctrl-fill-default: rgba(255, 255, 255, 0.70);
+  --ctrl-fill-secondary: rgba(249, 249, 249, 0.50);
+  --ctrl-fill-tertiary: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-disabled: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-input-active: #FFFFFF;
+  --ctrl-strong-fill: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-fill-disabled: rgba(0, 0, 0, 0.32);
+
+  /* Strokes */
+  --ctrl-border-rest: rgba(0, 0, 0, 0.06);
+  --ctrl-border: rgba(0, 0, 0, 0.06);
+  --ctrl-border-accent: rgba(0, 0, 0, 0.16);
+  --ctrl-strong-stroke: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-stroke-disabled: rgba(0, 0, 0, 0.22);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.06);
+  --stroke-divider: rgba(0, 0, 0, 0.06);
+  --accent-border: rgba(255, 255, 255, 0.08);
+  --accent-border-accent: rgba(0, 0, 0, 0.40);
+
+  /* Accent */
+  --accent-base: #0067C0;
+  --accent-hover: rgba(0, 103, 192, 0.90);
+  --accent-pressed: rgba(0, 103, 192, 0.80);
+  --accent-fill-disabled: rgba(0, 0, 0, 0.22);
+  --accent-aa-fill: #004E8C;
+  --accent-aa-text: #FFFFFF;
+
+  /* Status */
+  --system-attention: #0067C0;
+  --system-success: #0F7B0F;
+  --system-caution: #9D5D00;
+  --system-critical: #C42B1C;
+  --system-neutral: #8A8A8A;
+  --system-attention-bg: rgba(246, 246, 246, 0.50);
+  --system-success-bg: #DFF6DD;
+  --system-caution-bg: #FFF4CE;
+  --system-critical-bg: #FDE7E9;
+  --system-neutral-bg: #F3F3F3;
+
+  /* Toggle / radio */
+  --toggle-border: rgba(0, 0, 0, 0.45);
+  --toggle-thumb: rgba(0, 0, 0, 0.61);
+  --toggle-thumb-hover: rgba(0, 0, 0, 0.89);
+  --toggle-on-thumb: #FFFFFF;
+  --radio-border: rgba(0, 0, 0, 0.45);
+
+  /* Navigation */
+  --navigation-content-bg: rgba(249, 249, 249, 0.50);
+  --nav-compact-pane-length: 48px;
+
+  /* Radii / sizes */
+  --ControlCornerRadius: 4px;
+  --flyout-radius: 8px;
+  --control-min-height: 32px;
+
+  /* Fonts */
+  --ContentControlThemeFontFamily: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --ControlContentThemeFontSize: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #202020;
+    --layer-default: rgba(58, 58, 58, 0.30);
+    --flyout-bg: rgba(44, 44, 44, 0.86);
+    --flyout-border: rgba(255, 255, 255, 0.10);
+    --flyout-backdrop: blur(44px) saturate(190%) brightness(1.22) contrast(1.05);
+    --card-bg: rgba(255, 255, 255, 0.0512);
+    --card-bg-secondary: rgba(255, 255, 255, 0.0326);
+    --card-stroke: rgba(0, 0, 0, 0.10);
+    --dialog-background: #2C2C2C;
+    --ctrl-solid-fill: #454545;
+
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.77);
+    --text-tertiary: rgba(255, 255, 255, 0.53);
+    --text-disabled: rgba(255, 255, 255, 0.36);
+    --accent-text: #000000;
+    --accent-text-secondary: rgba(0, 0, 0, 0.50);
+    --accent-text-fill-color-primary: #99EBFF;
+
+    --subtle-secondary: rgba(255, 255, 255, 0.0605);
+    --subtle-tertiary: rgba(255, 255, 255, 0.0419);
+    --subtle-pressed: rgba(255, 255, 255, 0.03);
+
+    --ctrl-fill-default: rgba(255, 255, 255, 0.0605);
+    --ctrl-fill-secondary: rgba(255, 255, 255, 0.0837);
+    --ctrl-fill-tertiary: rgba(255, 255, 255, 0.0326);
+    --ctrl-fill-disabled: rgba(255, 255, 255, 0.0419);
+    --ctrl-fill-input-active: rgba(30, 30, 30, 0.70);
+    --ctrl-strong-fill: rgba(255, 255, 255, 0.54);
+    --ctrl-strong-fill-disabled: rgba(255, 255, 255, 0.25);
+
+    --ctrl-border-rest: rgba(0, 0, 0, 0.07);
+    --ctrl-border: rgba(255, 255, 255, 0.0706);
+    --ctrl-border-accent: rgba(255, 255, 255, 0.0941);
+    --ctrl-strong-stroke: rgba(255, 255, 255, 0.54);
+    --ctrl-strong-stroke-disabled: rgba(255, 255, 255, 0.16);
+    --stroke-surface-flyout: rgba(0, 0, 0, 0.20);
+    --stroke-divider: rgba(255, 255, 255, 0.08);
+    --accent-border: rgba(0, 0, 0, 0.1373);
+    --accent-border-accent: rgba(255, 255, 255, 0.0784);
+
+    --accent-base: #4CC2FF;
+    --accent-hover: rgba(96, 205, 255, 0.90);
+    --accent-pressed: rgba(96, 205, 255, 0.80);
+    --accent-fill-disabled: rgba(255, 255, 255, 0.16);
+    --accent-aa-fill: #79D2FF;
+    --accent-aa-text: #000000;
+
+    --system-attention: #4CC2FF;
+    --system-success: #6CCB5F;
+    --system-caution: #FCE100;
+    --system-critical: #FF99A4;
+    --system-neutral: #9D9D9D;
+    --system-attention-bg: rgba(255, 255, 255, 0.0314);
+    --system-success-bg: #393D1B;
+    --system-caution-bg: #433519;
+    --system-critical-bg: #442726;
+    --system-neutral-bg: #2E2E2E;
+
+    --toggle-border: rgba(255, 255, 255, 0.54);
+    --toggle-thumb: rgba(255, 255, 255, 0.79);
+    --toggle-thumb-hover: #FFFFFF;
+    --toggle-on-thumb: #000000;
+    --radio-border: rgba(255, 255, 255, 0.54);
+
+    --navigation-content-bg: rgba(48, 48, 48, 0.30);
+  }
+}
+
+/* Explicit theme scopes: set class="theme-light"/"theme-dark" on
+   <html> or on any wrapper (e.g. .win-theme-scope) to force a theme. */
+html.theme-light,
+.theme-light {
+  color-scheme: light;
+  --app-bg: #F3F3F3;
+  --layer-default: rgba(255, 255, 255, 0.50);
+  --flyout-bg: rgba(252, 252, 252, 0.92);
+  --flyout-border: rgba(0, 0, 0, 0.06);
+  --flyout-backdrop: blur(30px) saturate(160%) brightness(1.02);
+  --card-bg: rgba(255, 255, 255, 0.70);
+  --card-bg-secondary: rgba(246, 246, 246, 0.50);
+  --card-stroke: rgba(0, 0, 0, 0.06);
+  --dialog-background: #FCFCFC;
+  --ctrl-solid-fill: #FFFFFF;
+  --text-primary: rgba(0, 0, 0, 0.89);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.45);
+  --text-disabled: rgba(0, 0, 0, 0.36);
+  --accent-text: #FFFFFF;
+  --accent-text-secondary: rgba(255, 255, 255, 0.70);
+  --accent-text-fill-color-primary: #0D4897;
+  --subtle-secondary: rgba(0, 0, 0, 0.0373);
+  --subtle-tertiary: rgba(0, 0, 0, 0.0241);
+  --subtle-pressed: rgba(0, 0, 0, 0.06);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.70);
+  --ctrl-fill-secondary: rgba(249, 249, 249, 0.50);
+  --ctrl-fill-tertiary: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-disabled: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-input-active: #FFFFFF;
+  --ctrl-strong-fill: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-fill-disabled: rgba(0, 0, 0, 0.32);
+  --ctrl-border-rest: rgba(0, 0, 0, 0.06);
+  --ctrl-border: rgba(0, 0, 0, 0.06);
+  --ctrl-border-accent: rgba(0, 0, 0, 0.16);
+  --ctrl-strong-stroke: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-stroke-disabled: rgba(0, 0, 0, 0.22);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.06);
+  --stroke-divider: rgba(0, 0, 0, 0.06);
+  --accent-border: rgba(255, 255, 255, 0.08);
+  --accent-border-accent: rgba(0, 0, 0, 0.40);
+  --accent-base: #0067C0;
+  --accent-hover: rgba(0, 103, 192, 0.90);
+  --accent-pressed: rgba(0, 103, 192, 0.80);
+  --accent-fill-disabled: rgba(0, 0, 0, 0.22);
+  --accent-aa-fill: #004E8C;
+  --accent-aa-text: #FFFFFF;
+  --system-attention: #0067C0;
+  --system-success: #0F7B0F;
+  --system-caution: #9D5D00;
+  --system-critical: #C42B1C;
+  --system-neutral: #8A8A8A;
+  --system-attention-bg: rgba(246, 246, 246, 0.50);
+  --system-success-bg: #DFF6DD;
+  --system-caution-bg: #FFF4CE;
+  --system-critical-bg: #FDE7E9;
+  --system-neutral-bg: #F3F3F3;
+  --toggle-border: rgba(0, 0, 0, 0.45);
+  --toggle-thumb: rgba(0, 0, 0, 0.61);
+  --toggle-thumb-hover: rgba(0, 0, 0, 0.89);
+  --toggle-on-thumb: #FFFFFF;
+  --radio-border: rgba(0, 0, 0, 0.45);
+  --navigation-content-bg: rgba(249, 249, 249, 0.50);
+}
+
+html.theme-dark,
+.theme-dark {
+  color-scheme: dark;
+  --app-bg: #202020;
+  --layer-default: rgba(58, 58, 58, 0.30);
+  --flyout-bg: rgba(44, 44, 44, 0.86);
+  --flyout-border: rgba(255, 255, 255, 0.10);
+  --flyout-backdrop: blur(44px) saturate(190%) brightness(1.22) contrast(1.05);
+  --card-bg: rgba(255, 255, 255, 0.0512);
+  --card-bg-secondary: rgba(255, 255, 255, 0.0326);
+  --card-stroke: rgba(0, 0, 0, 0.10);
+  --dialog-background: #2C2C2C;
+  --ctrl-solid-fill: #454545;
+  --text-primary: #FFFFFF;
+  --text-secondary: rgba(255, 255, 255, 0.77);
+  --text-tertiary: rgba(255, 255, 255, 0.53);
+  --text-disabled: rgba(255, 255, 255, 0.36);
+  --accent-text: #000000;
+  --accent-text-secondary: rgba(0, 0, 0, 0.50);
+  --accent-text-fill-color-primary: #99EBFF;
+  --subtle-secondary: rgba(255, 255, 255, 0.0605);
+  --subtle-tertiary: rgba(255, 255, 255, 0.0419);
+  --subtle-pressed: rgba(255, 255, 255, 0.03);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.0605);
+  --ctrl-fill-secondary: rgba(255, 255, 255, 0.0837);
+  --ctrl-fill-tertiary: rgba(255, 255, 255, 0.0326);
+  --ctrl-fill-disabled: rgba(255, 255, 255, 0.0419);
+  --ctrl-fill-input-active: rgba(30, 30, 30, 0.70);
+  --ctrl-strong-fill: rgba(255, 255, 255, 0.54);
+  --ctrl-strong-fill-disabled: rgba(255, 255, 255, 0.25);
+  --ctrl-border-rest: rgba(0, 0, 0, 0.07);
+  --ctrl-border: rgba(255, 255, 255, 0.0706);
+  --ctrl-border-accent: rgba(255, 255, 255, 0.0941);
+  --ctrl-strong-stroke: rgba(255, 255, 255, 0.54);
+  --ctrl-strong-stroke-disabled: rgba(255, 255, 255, 0.16);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.20);
+  --stroke-divider: rgba(255, 255, 255, 0.08);
+  --accent-border: rgba(0, 0, 0, 0.1373);
+  --accent-border-accent: rgba(255, 255, 255, 0.0784);
+  --accent-base: #4CC2FF;
+  --accent-hover: rgba(96, 205, 255, 0.90);
+  --accent-pressed: rgba(96, 205, 255, 0.80);
+  --accent-fill-disabled: rgba(255, 255, 255, 0.16);
+  --accent-aa-fill: #79D2FF;
+  --accent-aa-text: #000000;
+  --system-attention: #4CC2FF;
+  --system-success: #6CCB5F;
+  --system-caution: #FCE100;
+  --system-critical: #FF99A4;
+  --system-neutral: #9D9D9D;
+  --system-attention-bg: rgba(255, 255, 255, 0.0314);
+  --system-success-bg: #393D1B;
+  --system-caution-bg: #433519;
+  --system-critical-bg: #442726;
+  --system-neutral-bg: #2E2E2E;
+  --toggle-border: rgba(255, 255, 255, 0.54);
+  --toggle-thumb: rgba(255, 255, 255, 0.79);
+  --toggle-thumb-hover: #FFFFFF;
+  --toggle-on-thumb: #000000;
+  --radio-border: rgba(255, 255, 255, 0.54);
+  --navigation-content-bg: rgba(48, 48, 48, 0.30);
+}
+
+/* ============================================================
+   Base styles
+   ============================================================ */
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: var(--ControlContentThemeFontSize, 14px);
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  transition: background var(--normal-duration) var(--fast-out-slow-in), color var(--normal-duration) var(--fast-out-slow-in);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-base) 30%, transparent);
+}
+
+/* ============================================================
+   Acrylic popup recipe
+   Usage: add class "win-acrylic" to any popup (flyout, menu,
+   tooltip, combobox list). The tint is painted on a ::before so
+   Chromium samples the page behind the backdrop-filter reliably.
+   ============================================================ */
+.win-acrylic {
+  --win-acrylic-fill: var(--flyout-bg);
+  isolation: isolate;
+  background: transparent !important;
+  border: 1px solid var(--stroke-surface-flyout);
+  border-radius: var(--flyout-radius);
+  -webkit-backdrop-filter: var(--flyout-backdrop);
+  backdrop-filter: var(--flyout-backdrop);
+}
+
+.win-acrylic::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--win-acrylic-fill);
+}
+
+/* ============================================================
+   WinUI scrollbar (custom, overlay style)
+   ============================================================ */
+.winui-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ctrl-strong-fill) transparent;
+}
+
+.winui-scroll::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.winui-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.winui-scroll::-webkit-scrollbar-thumb {
+  background: rgba(99, 99, 99, 0.6);
+  border-radius: 8px;
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  min-height: 40px;
+}
+
+.winui-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 99, 99, 0.8);
+  background-clip: padding-box;
+  border-width: 1px;
+}
+
+.winui-scroll::-webkit-scrollbar-thumb:active {
+  background: rgba(66, 66, 66, 0.9);
+  background-clip: padding-box;
+  border-width: 1px;
+}
+
+/* ============================================================
+   Shared control primitives
+   ============================================================ */
+.win-control {
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  border-radius: var(--ControlCornerRadius);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: var(--ControlContentThemeFontSize);
+  color: var(--text-primary);
+  transition:
+    background var(--fast-duration) var(--fast-out-slow-in),
+    color var(--fast-duration) var(--fast-out-slow-in),
+    border-color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-control:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.win-control:disabled,
+.win-control.is-disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+/* Standard button (see references/components.md for accent/subtle) */
+.win-btn {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 11px 6px;
+  border: 1px solid var(--ctrl-border);
+  border-bottom-color: var(--ctrl-border-accent);
+  border-radius: var(--ControlCornerRadius);
+  background: var(--ctrl-fill-default);
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background var(--fast-duration) var(--fast-out-slow-in), color var(--fast-duration);
+}
+
+.win-btn:hover { background: var(--ctrl-fill-secondary); }
+.win-btn:active { background: var(--ctrl-fill-tertiary); color: var(--text-secondary); }
+.win-btn:disabled { background: var(--ctrl-fill-disabled); color: var(--text-disabled); pointer-events: none; }
+
+.win-btn.AccentButtonStyle {
+  background: var(--accent-base);
+  border-color: var(--accent-border);
+  border-bottom-color: var(--accent-border-accent);
+  color: var(--accent-text);
+}
+.win-btn.AccentButtonStyle:hover { background: var(--accent-hover); }
+.win-btn.AccentButtonStyle:active { background: var(--accent-pressed); color: var(--accent-text-secondary); }
+.win-btn.AccentButtonStyle:disabled { background: var(--accent-fill-disabled); color: var(--text-disabled); }
+
+.win-btn.SubtleButtonStyle {
+  background: transparent;
+  border-color: transparent;
+}
+.win-btn.SubtleButtonStyle:hover { background: var(--subtle-secondary); }
+.win-btn.SubtleButtonStyle:active { background: var(--subtle-tertiary); color: var(--text-secondary); }
+.win-btn.SubtleButtonStyle:disabled { background: transparent; color: var(--text-disabled); }
+
+/* Text input (see components.md for the focus underline recipe) */
+.win-textbox {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 6px 6px 10px;
+  border: 1px solid var(--ctrl-border-rest);
+  border-bottom-color: var(--ctrl-strong-stroke);
+  border-radius: var(--ControlCornerRadius);
+  background: var(--ctrl-fill-default);
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.win-textbox:hover { background: var(--ctrl-fill-secondary); }
+.win-textbox:focus {
+  background: var(--ctrl-fill-input-active);
+  border-bottom: 2px solid var(--accent-base);
+  padding-bottom: 5px;
+  outline: none;
+}
+.win-textbox::placeholder { color: var(--text-secondary); opacity: 1; }
+.win-textbox:disabled { background: var(--ctrl-fill-disabled); color: var(--text-disabled); border-bottom-color: var(--ctrl-strong-stroke-disabled); }

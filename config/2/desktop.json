@@ -31,6 +31,30 @@
       "name": "AmengExplorer",
       "start": "com.amengexplorer",
       "icon": "D:\\Codewhale\\workspace\\amsys\\root\\opt\\com.amengexplorer.app\\amengexplorer.exe"
+    },
+    {
+      "id": 1786347684310,
+      "x": 395,
+      "y": 15,
+      "name": "Peazip",
+      "start": "com.peazip",
+      "icon": "D:\\Codewhale\\workspace\\amsys\\root\\bin\\com.pacman.app\\peazip.exe"
+    },
+    {
+      "id": 1786347955744,
+      "x": 15,
+      "y": 120,
+      "name": "终端",
+      "start": "com.terminal",
+      "icon": "I:\\Data-数据区\\应用\\自制\\ElectronAmengUI\\AmengUI\\com.amsys.app\\launcher.exe"
+    },
+    {
+      "id": 1786430935780,
+      "x": 110,
+      "y": 120,
+      "name": "Peazip",
+      "start": "com.peazip",
+      "icon": "D:\\Codewhale\\workspace\\amsys\\root\\bin\\com.pacman.app\\peazip.exe"
     }
   ],
   "desktopbg": null

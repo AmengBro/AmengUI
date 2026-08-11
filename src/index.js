@@ -140,6 +140,8 @@ if (require('electron-squirrel-startup')) {
 let mainWindow = null;
 let dashboardWindow = null;
 let controlCenterWindow = null;
+let startMenuWindow = null;
+let calendarWindow = null;
 let amsysProcess = null;
 let amsysShellPid = null;
 let isShellMode = false;
@@ -278,6 +280,10 @@ app.whenReady().then(async () => {
  */
 async function initConfig() {
   try {
+    // 启动同步：以各用户 config/{userid}/config.json 的 login 为准重建 users.json，
+    // 手动改过 config.json 后重启即可生效（users.json 只是聚合视图）
+    await config.syncUsersFromConfig();
+
     const users = await config.getUsers();
     
     // 为所有现有用户创建配置目录
@@ -565,352 +571,394 @@ ipcMain.handle('window:logout', async () => {
   });
 });
 
+// ==================== 浮层窗口（开始菜单 / 日历，悬浮于所有窗口之上） ====================
+
+/**
+ * 解析当前登录用户（设置/开始菜单账户卡片共用）
+ */
+async function resolveAccount() {
+  let account = { username: '用户', email: '', roleLabel: '本地账户', avatar: null };
+  try {
+    const users = await config.getUsers();
+    let user = null;
+    if (currentLoggedInUser) {
+      user = currentLoggedInUser;
+    } else {
+      const lastUserId = await config.getLastLoginUserId();
+      user = (lastUserId && users.find((u) => u.userid === lastUserId)) || users[0] || null;
+    }
+    if (user) {
+      // 角色徽章：root/sudo 显示管理员，普通用户显示用户
+      const roleLabel = (user.permi === 'root' || user.permi === 'sudo') ? '管理员' : '用户';
+      account = {
+        userId: user.userid,
+        username: user.username || '用户',
+        email: user.email || '',
+        roleLabel,
+        avatar: user.photo || null,
+        permi: user.permi || 'user',
+      };
+    }
+  } catch (err) {
+    console.warn('[Floating] 解析账户信息失败:', err.message);
+  }
+  return account;
+}
+
+/**
+ * 解析当前用户的主题设置（浮层窗口使用）
+ */
+async function resolveUserTheme(account) {
+  let theme = 'dark';
+  let accentColor = '#0078D4';
+  try {
+    if (account && account.userId) {
+      const settings = await config.getSettings(account.userId);
+      theme = settings.theme || theme;
+      accentColor = settings.accentColor || accentColor;
+    }
+  } catch (err) {
+    console.warn('[Floating] 解析主题失败:', err.message);
+  }
+  return { theme, accentColor };
+}
+
+/**
+ * 任务栏上沿高度：浮动任务栏 bottom 8px + 高 48px；停靠任务栏 bottom 0 + 高 48px
+ */
+function getTaskbarTop(isFloating) {
+  return isFloating ? 56 : 48;
+}
+
+function broadcastStartMenuState(open) {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.webContents.send('startmenu:state', open);
+  }
+}
+
+function broadcastCalendarState(open) {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.webContents.send('calendar:state', open);
+  }
+}
+
+// ---- 开始菜单窗口 ----
+let startMenuHideTimer = null;
+
+function positionStartMenuWindow(isFloating) {
+  if (!startMenuWindow || startMenuWindow.isDestroyed()) return;
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const W = 400;
+  const H = 500;
+  const taskbarTop = getTaskbarTop(isFloating);
+  startMenuWindow.setPosition(8, Math.max(0, height - H - taskbarTop - 8));
+}
+
+async function pushStartMenuTheme() {
+  const account = await resolveAccount();
+  const { theme, accentColor } = await resolveUserTheme(account);
+  if (startMenuWindow && !startMenuWindow.isDestroyed()) {
+    startMenuWindow.webContents.send('startmenu:theme', { theme, accentColor, account });
+  }
+}
+
+function showStartMenuWindow(opts = {}) {
+  const isFloating = opts.isTaskbarFloating !== false;
+
+  if (!startMenuWindow || startMenuWindow.isDestroyed()) {
+    startMenuWindow = new BrowserWindow({
+      width: 400,
+      height: 500,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      fullscreenable: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+      },
+    });
+    startMenuWindow.loadFile(path.join(__dirname, 'start-menu.html'));
+
+    startMenuWindow.webContents.on('did-finish-load', () => {
+      pushStartMenuTheme();
+    });
+    startMenuWindow.on('blur', () => {
+      // 延迟隐藏：避免点击任务栏开始按钮时 blur 先触发导致“关不掉”
+      clearTimeout(startMenuHideTimer);
+      startMenuHideTimer = setTimeout(() => {
+        startMenuHideTimer = null;
+        hideStartMenuWindow();
+      }, 200);
+    });
+    startMenuWindow.on('closed', () => {
+      startMenuWindow = null;
+    });
+  }
+
+  positionStartMenuWindow(isFloating);
+  startMenuWindow.show();
+  startMenuWindow.focus();
+  broadcastStartMenuState(true);
+
+  // 每次打开都重新读取 /usr/share/applications（虚拟根），
+  // 保证 Pacman 等安装器新增的 .app 立即可见；
+  // 窗口还在首次加载时跳过（init 会做初次加载）。
+  if (startMenuWindow && !startMenuWindow.isDestroyed() && !startMenuWindow.webContents.isLoading()) {
+    startMenuWindow.webContents.send('startmenu:refresh');
+  }
+}
+
+function hideStartMenuWindow() {
+  clearTimeout(startMenuHideTimer);
+  startMenuHideTimer = null;
+  if (startMenuWindow && !startMenuWindow.isDestroyed() && startMenuWindow.isVisible()) {
+    startMenuWindow.hide();
+    broadcastStartMenuState(false);
+  }
+}
+
+ipcMain.handle('startmenu:toggle', async (event, opts = {}) => {
+  clearTimeout(startMenuHideTimer);
+  startMenuHideTimer = null;
+  if (startMenuWindow && !startMenuWindow.isDestroyed() && startMenuWindow.isVisible()) {
+    hideStartMenuWindow();
+    return { open: false };
+  }
+  showStartMenuWindow(opts);
+  return { open: true };
+});
+
+ipcMain.on('startmenu:hide', () => {
+  hideStartMenuWindow();
+});
+
+// 开始菜单“发送到桌面”后通知桌面窗口刷新
+ipcMain.on('startmenu:desktop-added', () => {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.webContents.send('desktop:refresh');
+  }
+});
+
+// ---- 日历窗口 ----
+let calendarHideTimer = null;
+
+function positionCalendarWindow(isFloating) {
+  if (!calendarWindow || calendarWindow.isDestroyed()) return;
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const W = 280;
+  const H = 384;
+  const taskbarTop = getTaskbarTop(isFloating);
+  calendarWindow.setPosition(width - W - 8, Math.max(0, height - H - taskbarTop - 8));
+}
+
+async function pushCalendarTheme() {
+  const account = await resolveAccount();
+  const { theme, accentColor } = await resolveUserTheme(account);
+  if (calendarWindow && !calendarWindow.isDestroyed()) {
+    calendarWindow.webContents.send('calendar:theme', { theme, accentColor });
+  }
+}
+
+function showCalendarWindow(opts = {}) {
+  const isFloating = opts.isTaskbarFloating !== false;
+
+  if (!calendarWindow || calendarWindow.isDestroyed()) {
+    calendarWindow = new BrowserWindow({
+      width: 280,
+      height: 384,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      fullscreenable: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+      },
+    });
+    calendarWindow.loadFile(path.join(__dirname, 'calendar.html'));
+
+    calendarWindow.webContents.on('did-finish-load', () => {
+      pushCalendarTheme();
+    });
+    calendarWindow.on('blur', () => {
+      clearTimeout(calendarHideTimer);
+      calendarHideTimer = setTimeout(() => {
+        calendarHideTimer = null;
+        hideCalendarWindow();
+      }, 200);
+    });
+    calendarWindow.on('closed', () => {
+      calendarWindow = null;
+    });
+  }
+
+  positionCalendarWindow(isFloating);
+  calendarWindow.show();
+  calendarWindow.focus();
+  broadcastCalendarState(true);
+}
+
+function hideCalendarWindow() {
+  clearTimeout(calendarHideTimer);
+  calendarHideTimer = null;
+  if (calendarWindow && !calendarWindow.isDestroyed() && calendarWindow.isVisible()) {
+    calendarWindow.hide();
+    broadcastCalendarState(false);
+  }
+}
+
+ipcMain.handle('calendar:toggle', async (event, opts = {}) => {
+  clearTimeout(calendarHideTimer);
+  calendarHideTimer = null;
+  if (calendarWindow && !calendarWindow.isDestroyed() && calendarWindow.isVisible()) {
+    hideCalendarWindow();
+    return { open: false };
+  }
+  showCalendarWindow(opts);
+  return { open: true };
+});
+
+ipcMain.on('calendar:hide', () => {
+  hideCalendarWindow();
+});
+
+/**
+ * 隐藏所有浮层窗口（Shell 模式 / 锁屏时调用）
+ */
+function hideOverlayWindows() {
+  hideStartMenuWindow();
+  hideCalendarWindow();
+  if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+    controlCenterWindow.hide();
+  }
+}
+
 // 设置窗口
-ipcMain.handle('settings:show', async (event, settingsData) => {
-  console.log('[Settings IPC] settings:show received, settingsData:', JSON.stringify(settingsData));
-  
+let settingsWindow = null;
+
+ipcMain.handle('settings:show', async (event, settingsData = {}) => {
+  console.log('[Settings IPC] settings:show received:', JSON.stringify(settingsData));
+
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.focus();
+    return { success: true };
+  }
+
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   const iconPath = path.join(__dirname, '../favicon.ico');
-  
-  const settingsWindow = new BrowserWindow({
-    width: 360,
-    height: 520,
-    x: Math.floor((width - 360) / 2),
-    y: Math.floor((height - 520) / 2),
+  const theme = settingsData.theme || 'dark';
+  const accentColor = settingsData.accentColor || '#0078D4';
+  const isTaskbarFloating = settingsData.isTaskbarFloating !== undefined ? settingsData.isTaskbarFloating : true;
+
+  const WIN_W = Math.max(860, Math.min(1040, Math.floor(width * 0.82)));
+  const WIN_H = Math.max(560, Math.min(720, Math.floor(height * 0.82)));
+
+  settingsWindow = new BrowserWindow({
+    width: WIN_W,
+    height: WIN_H,
+    x: Math.max(0, Math.floor((width - WIN_W) / 2)),
+    y: Math.max(0, Math.floor((height - WIN_H) / 2)),
+    minWidth: 860,
+    minHeight: 560,
     frame: false,
     fullscreen: false,
     alwaysOnTop: false,
     skipTaskbar: false,
-    resizable: false,
+    resizable: true,
+    maximizable: true,
     icon: iconPath,
+    backgroundColor: theme === 'bright' ? '#F3F3F3' : '#202020',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: true,
-      contextIsolation: false,
     },
   });
-  
-  const theme = settingsData.theme || 'dark';
-  const accentColor = settingsData.accentColor || '#0078D4';
-  const isTaskbarFloating = settingsData.isTaskbarFloating !== undefined ? settingsData.isTaskbarFloating : true;
-  
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>临时设置</title>
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-          background: ${theme === 'dark' ? 'rgba(32, 32, 32, 0.95)' : 'rgba(255, 255, 255, 0.98)'};
-          color: ${theme === 'dark' ? '#fff' : '#333'};
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          overflow: hidden;
-          backdrop-filter: blur(15px);
-          -webkit-backdrop-filter: blur(15px);
-        }
-        .title-bar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 12px 16px;
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
-          border-bottom: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
-          cursor: move;
-          -webkit-app-region: drag;
-        }
-        .title-text {
-          font-size: 14px;
-          font-weight: 500;
-        }
-        .close-btn {
-          width: 28px;
-          height: 28px;
-          border: none;
-          background: transparent;
-          color: ${theme === 'dark' ? '#999' : '#666'};
-          font-size: 20px;
-          cursor: pointer;
-          border-radius: 4px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: background 0.15s, color 0.15s;
-          -webkit-app-region: no-drag;
-        }
-        .close-btn:hover {
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'};
-          color: ${theme === 'dark' ? '#fff' : '#333'};
-        }
-        .content {
-          padding: 16px;
-          max-height: calc(100vh - 48px);
-          overflow-y: auto;
-        }
-        .content::-webkit-scrollbar { width: 6px; }
-        .content::-webkit-scrollbar-track { background: transparent; }
-        .content::-webkit-scrollbar-thumb { 
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'}; 
-          border-radius: 3px; 
-        }
-        .section {
-          margin-bottom: 20px;
-        }
-        .section-title {
-          font-size: 12px;
-          font-weight: 600;
-          color: ${theme === 'dark' ? '#999' : '#666'};
-          margin-bottom: 12px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-        .setting-item {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 10px 0;
-          border-bottom: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'};
-        }
-        .setting-label {
-          font-size: 13px;
-        }
-        .toggle-switch {
-          width: 44px;
-          height: 24px;
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
-          border-radius: 12px;
-          position: relative;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-        .toggle-switch.active {
-          background: ${accentColor};
-        }
-        .toggle-switch::after {
-          content: '';
-          position: absolute;
-          width: 20px;
-          height: 20px;
-          background: #fff;
-          border-radius: 50%;
-          top: 2px;
-          left: 2px;
-          transition: left 0.2s;
-        }
-        .toggle-switch.active::after {
-          left: 22px;
-        }
-        .color-picker-wrapper {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        #accent-color-input {
-          width: 40px;
-          height: 32px;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          background: transparent;
-          padding: 2px;
-        }
-        #accent-color-input::-webkit-color-swatch-wrapper {
-          padding: 0;
-        }
-        #accent-color-input::-webkit-color-swatch {
-          border-radius: 6px;
-          border: 2px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
-        }
-        .color-preview {
-          width: 24px;
-          height: 24px;
-          border-radius: 4px;
-          border: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
-        }
-        .theme-options {
-          display: flex;
-          gap: 8px;
-        }
-        .theme-btn {
-          flex: 1;
-          padding: 10px;
-          border: 2px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
-          border-radius: 8px;
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
-          color: ${theme === 'dark' ? '#fff' : '#333'};
-          cursor: pointer;
-          font-size: 13px;
-          transition: all 0.2s;
-        }
-        .theme-btn:hover {
-          border-color: ${accentColor};
-        }
-        .theme-btn.active {
-          border-color: ${accentColor};
-          background: ${accentColor}20;
-        }
-        .taskbar-options {
-          display: flex;
-          gap: 8px;
-        }
-        .taskbar-btn {
-          flex: 1;
-          padding: 10px;
-          border: 2px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
-          border-radius: 8px;
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
-          color: ${theme === 'dark' ? '#fff' : '#333'};
-          cursor: pointer;
-          font-size: 13px;
-          transition: all 0.2s;
-        }
-        .taskbar-btn:hover {
-          border-color: ${accentColor};
-        }
-        .taskbar-btn.active {
-          border-color: ${accentColor};
-          background: ${accentColor}20;
-        }
-        .bg-preview {
-          width: 100%;
-          height: 100px;
-          border-radius: 8px;
-          border: 2px dashed ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 12px;
-          background-size: cover;
-          background-position: center;
-          background-repeat: no-repeat;
-          position: relative;
-          overflow: hidden;
-        }
-        .bg-preview::before {
-          content: '无背景';
-          color: ${theme === 'dark' ? '#666' : '#999'};
-          font-size: 13px;
-        }
-        .bg-preview.has-bg::before {
-          display: none;
-        }
-        .bg-actions {
-          display: flex;
-          gap: 8px;
-        }
-        .bg-btn {
-          flex: 1;
-          padding: 8px 12px;
-          border: 1px solid ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
-          border-radius: 6px;
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
-          color: ${theme === 'dark' ? '#fff' : '#333'};
-          cursor: pointer;
-          font-size: 12px;
-          transition: all 0.2s;
-        }
-        .bg-btn:hover {
-          background: ${accentColor}20;
-          border-color: ${accentColor};
-        }
-        #bg-file-input {
-          display: none;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="title-bar">
-        <span class="title-text">临时设置</span>
-        <button class="close-btn" onclick="window.close()">&times;</button>
-      </div>
-      <div class="content">
-        <div class="section">
-          <div class="section-title">主题</div>
-          <div class="theme-options">
-            <button class="theme-btn ${theme === 'dark' ? 'active' : ''}" onclick="changeTheme('dark')">暗色</button>
-            <button class="theme-btn ${theme === 'bright' ? 'active' : ''}" onclick="changeTheme('bright')">亮色</button>
-          </div>
-        </div>
-        
-        <div class="section">
-          <div class="section-title">主题色</div>
-          <div class="setting-item">
-            <span class="setting-label">颜色选择</span>
-            <div class="color-picker-wrapper">
-              <div class="color-preview" style="background: ${accentColor}"></div>
-              <input type="color" id="accent-color-input" value="${accentColor}" onchange="changeAccentColor(this.value)">
-            </div>
-          </div>
-        </div>
-        
-        <div class="section">
-          <div class="section-title">任务栏</div>
-          <div class="taskbar-options">
-            <button class="taskbar-btn ${isTaskbarFloating ? 'active' : ''}" onclick="changeTaskbarMode(true)">浮动</button>
-            <button class="taskbar-btn ${!isTaskbarFloating ? 'active' : ''}" onclick="changeTaskbarMode(false)">停靠</button>
-          </div>
-        </div>
-        
-        <div class="section">
-          <div class="section-title">桌面背景</div>
-          <div class="bg-preview ${settingsData.desktopBackground ? 'has-bg' : ''}" id="bg-preview" ${settingsData.desktopBackground ? `style="background-image: url('${settingsData.desktopBackground}')"` : ''}></div>
-          <div class="bg-actions">
-            <button class="bg-btn" onclick="document.getElementById('bg-file-input').click()">选择图片</button>
-            <button class="bg-btn" onclick="clearBackground()">清除背景</button>
-          </div>
-          <input type="file" id="bg-file-input" accept="image/*" onchange="selectBackground(event)">
-        </div>
-      </div>
-      
-      <script>
-        const { ipcRenderer } = require('electron');
-        
-        function changeTheme(newTheme) {
-          ipcRenderer.send('settings:change', { type: 'theme', value: newTheme });
-        }
-        
-        function changeAccentColor(newColor) {
-          ipcRenderer.send('settings:change', { type: 'accentColor', value: newColor });
-          document.querySelector('.color-preview').style.background = newColor;
-        }
-        
-        function changeTaskbarMode(isFloating) {
-          ipcRenderer.send('settings:change', { type: 'taskbarMode', value: isFloating });
-        }
-        
-        function selectBackground(event) {
-          const file = event.target.files[0];
-          if (file) {
-            const bgUrl = 'file:///' + file.path.replaceAll('\\', '/');
-            const preview = document.getElementById('bg-preview');
-            preview.style.backgroundImage = 'url("' + bgUrl + '")';
-            preview.classList.add('has-bg');
-            ipcRenderer.send('settings:change', { type: 'desktopBackground', value: bgUrl });
-          }
-        }
-        
-        function clearBackground() {
-          const preview = document.getElementById('bg-preview');
-          preview.style.backgroundImage = '';
-          preview.classList.remove('has-bg');
-          ipcRenderer.send('settings:change', { type: 'desktopBackground', value: null });
-        }
-        
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') window.close();
-        });
-      </script>
-    </body>
-    </html>
-  `;
-  
-  settingsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-  
+
+  settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
+
+  // 解析账户信息（当前登录用户，未登录时取最近登录用户）
+  const account = await resolveAccount();
+
+  const pushTheme = () => {
+    if (!settingsWindow || settingsWindow.isDestroyed()) return;
+    settingsWindow.webContents.send('settings:theme', {
+      theme,
+      accentColor,
+      isTaskbarFloating,
+      desktopBackground: settingsData.desktopBackground || null,
+      deviceName: os.hostname(),
+      account,
+    });
+  };
+
+  settingsWindow.webContents.on('did-finish-load', pushTheme);
+
+  const pushMaximized = () => {
+    if (!settingsWindow || settingsWindow.isDestroyed()) return;
+    settingsWindow.webContents.send('settings:maximized', settingsWindow.isMaximized());
+  };
+  settingsWindow.on('maximize', pushMaximized);
+  settingsWindow.on('unmaximize', pushMaximized);
+
   settingsWindow.on('closed', () => {
-    console.log('[Settings] Settings window closed');
+    settingsWindow = null;
   });
+
+  return { success: true };
+});
+
+// 设置窗口控制（最小化 / 最大化 / 关闭）
+ipcMain.on('settings:windowAction', (event, action) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  if (action === 'minimize') {
+    win.minimize();
+  } else if (action === 'maximize') {
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  } else if (action === 'close') {
+    win.close();
+  }
+});
+
+// 设备名称与型号（WMI 查询，会话级缓存）
+let deviceInfoCache = null;
+let deviceInfoPromise = null;
+
+ipcMain.handle('settings:getDeviceInfo', async () => {
+  if (deviceInfoCache) return deviceInfoCache;
+  if (!deviceInfoPromise) {
+    deviceInfoPromise = (async () => {
+      const info = { name: os.hostname(), manufacturer: '', model: '' };
+      try {
+        const pwsh = await getPwshPath();
+        // 用 -EncodedCommand 传输，避免 cmd/引号把 $ 变量或格式串吃掉
+        const psCmd = '$c = Get-CimInstance Win32_ComputerSystem; "{0}|{1}" -f $c.Manufacturer,$c.Model';
+        const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+        const { stdout } = await execAsync(
+          `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+          { timeout: 8000, windowsHide: true, encoding: 'utf8' }
+        );
+        const [manufacturer, model] = String(stdout || '').trim().split('|');
+        info.manufacturer = (manufacturer || '').trim();
+        info.model = (model || '').trim();
+      } catch (err) {
+        console.warn('[Settings] 设备型号查询失败:', err.message);
+      }
+      deviceInfoCache = info;
+      return info;
+    })().catch((err) => {
+      deviceInfoPromise = null;
+      throw err;
+    });
+  }
+  return deviceInfoPromise;
 });
 
 // 设置变更事件
@@ -1217,25 +1265,36 @@ async function resolveAmsysIfEmbedded(exePath) {
 }
 
 /**
+ * 规范化 .app 应用名：兼容传入带或不带 .app 后缀的名称
+ * （例如 "com.sysinformer" 与 "com.sysinformer.app" 均指向同一配置文件）
+ * @param {string} appName - 原始应用名
+ * @returns {string} 去掉尾部 .app 后缀的应用名
+ */
+function normalizeAppName(appName) {
+  return String(appName || '').replace(/\.app$/i, '');
+}
+
+/**
  * 启动应用程序
  * @param {string} appName - .app 文件名（不含扩展名）
  */
 ipcMain.handle('app:launch', async (_, appName) => {
   try {
+    const normalizedName = normalizeAppName(appName);
     let appPath;
     
     try {
       const converter = await getPathConverter(APP_ROOT);
       const result = await converter.toWindows('/usr/share/applications');
       if (result.success && result.winPath) {
-        appPath = path.join(result.winPath, `${appName}.app`);
+        appPath = path.join(result.winPath, `${normalizedName}.app`);
         console.log('App path via converter:', appPath);
       } else {
         throw new Error('path conversion failed');
       }
     } catch (converterError) {
       console.warn('Failed to get app path via converter, using fallback:', converterError.message);
-      appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+      appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${normalizedName}.app`);
     }
     
     console.log('Attempting to launch app:', appPath);
@@ -1281,20 +1340,21 @@ ipcMain.handle('app:launch', async (_, appName) => {
 // 获取应用信息
 ipcMain.handle('app:getInfo', async (_, appName) => {
   try {
+    const normalizedName = normalizeAppName(appName);
     let appPath;
     
     try {
       const converter = await getPathConverter(APP_ROOT);
       const result = await converter.toWindows('/usr/share/applications');
       if (result.success && result.winPath) {
-        appPath = path.join(result.winPath, `${appName}.app`);
+        appPath = path.join(result.winPath, `${normalizedName}.app`);
         console.log('App path via converter:', appPath);
       } else {
         throw new Error('path conversion failed');
       }
     } catch (converterError) {
       console.warn('Failed to get app path via converter, using fallback:', converterError.message);
-      appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${appName}.app`);
+      appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${normalizedName}.app`);
     }
     
     console.log('Getting app info:', appPath);
@@ -1443,6 +1503,9 @@ ipcMain.handle('screen:lock', async () => {
   if (lockWindow) {
     return;
   }
+
+  // 锁屏时隐藏所有浮层窗口
+  hideOverlayWindows();
   
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   
@@ -1632,6 +1695,9 @@ ipcMain.on('auth:shell', () => {
   console.log('=== Entering Shell Mode ===');
   
   isShellMode = true;
+
+  // 隐藏所有浮层窗口
+  hideOverlayWindows();
   
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
     dashboardWindow.hide();
@@ -1683,7 +1749,10 @@ ipcMain.handle('control-center:show', async () => {
     if (!app.isPackaged) {
       controlCenterWindow.webContents.reload();
     }
+    // 每次显示重新断言置顶，防止某些情况下丢失 WS_EX_TOPMOST
+    controlCenterWindow.setAlwaysOnTop(true);
     controlCenterWindow.show();
+    controlCenterWindow.focus();
     return;
   }
   
@@ -1720,6 +1789,12 @@ ipcMain.handle('control-center:show', async () => {
   
   controlCenterWindow.on('blur', () => {
     controlCenterWindow.hide();
+  });
+
+  controlCenterWindow.on('show', () => {
+    if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
+      controlCenterWindow.setAlwaysOnTop(true);
+    }
   });
 });
 

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置</title>
+  <link rel="stylesheet" href="winui-theme.css">
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <!-- 标题栏 -->
+  <header class="titlebar">
+    <span class="app-title">设置</span>
+    <div class="search-box">
+      <span class="search-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">
+          <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+        </svg>
+      </span>
+      <input id="search-input" class="win-textbox search-input" type="text"
+             placeholder="查找设置" aria-label="查找设置" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="window-controls">
+      <button id="btn-min" class="win-caption-btn" title="最小化" aria-label="最小化">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+          <line x1="1" y1="6" x2="11" y2="6"/>
+        </svg>
+      </button>
+      <button id="btn-max" class="win-caption-btn" title="最大化" aria-label="最大化">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+          <rect x="1.5" y="1.5" width="9" height="9"/>
+        </svg>
+      </button>
+      <button id="btn-restore" class="win-caption-btn hidden" title="还原" aria-label="还原">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+          <rect x="1.5" y="3" width="7.5" height="7.5"/>
+          <path d="M4 3V1.5h6.5V8H9"/>
+        </svg>
+      </button>
+      <button id="btn-close" class="win-caption-btn close" title="关闭" aria-label="关闭">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+          <line x1="2" y1="2" x2="10" y2="10"/>
+          <line x1="10" y1="2" x2="2" y2="10"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-root">
+    <!-- 左侧导航 -->
+    <aside class="nav-pane">
+      <button id="account-card" class="account-card" aria-label="账户">
+        <span class="avatar" id="account-avatar">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22" aria-hidden="true">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+          </svg>
+        </span>
+        <span class="account-info">
+          <span class="account-name" id="account-name">用户</span>
+          <span class="account-sub" id="account-sub">本地账户</span>
+        </span>
+        <span class="account-chevron" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+            <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+          </svg>
+        </span>
+      </button>
+      <nav class="nav-list winui-scroll" id="nav-list" aria-label="设置类别"></nav>
+      <div class="nav-empty hidden" id="nav-empty">
+        <span id="nav-empty-text"></span>
+      </div>
+    </aside>
+
+    <!-- 内容区 -->
+    <main class="content winui-scroll" id="content">
+      <!-- 主页 -->
+      <section class="page" data-page="home">
+        <div class="page-header">
+          <h1 class="page-title">主页</h1>
+        </div>
+
+        <div class="device-card">
+          <div class="device-main">
+            <div class="device-logo">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="26" height="26" aria-hidden="true">
+                <path d="M3 5.5h7.5V13H3V5.5zM3 19v-4.5h7.5V19H3zM13.5 5.5H21V13h-7.5V5.5zM13.5 19v-4.5H21V19h-7.5z"/>
+              </svg>
+            </div>
+            <div class="device-body">
+              <div class="device-name" id="device-name">正在检测…</div>
+              <div class="device-model" id="device-model">正在检测设备型号…</div>
+            </div>
+            <button class="win-btn SubtleButtonStyle" id="btn-rename" type="button">重命名</button>
+          </div>
+          <div class="wifi-row" id="wifi-row" role="button" tabindex="0" aria-label="网络设置">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
+              </svg>
+            </span>
+            <span class="card-body">
+              <span class="card-title" id="wifi-label">WiFi</span>
+              <span class="card-desc" id="wifi-sub">正在检测连接状态…</span>
+            </span>
+            <span class="card-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="reco-card">
+          <div class="reco-header">
+            <div class="reco-title">推荐设置</div>
+            <div class="reco-sub">最近使用的和常用的设置</div>
+          </div>
+          <div class="reco-row" data-goto="apps" role="button" tabindex="0">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                <path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/>
+              </svg>
+            </span>
+            <span class="card-body">
+              <span class="card-title">安装的应用</span>
+              <span class="card-desc">查看和卸载应用</span>
+            </span>
+            <span class="card-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+              </svg>
+            </span>
+          </div>
+          <div class="reco-row" data-goto="system" role="button" tabindex="0">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                <path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/>
+              </svg>
+            </span>
+            <span class="card-body">
+              <span class="card-title">存储</span>
+              <span class="card-desc">管理存储空间和使用情况</span>
+            </span>
+            <span class="card-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+              </svg>
+            </span>
+          </div>
+          <div class="reco-row" data-goto="personalization" role="button" tabindex="0">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+              </svg>
+            </span>
+            <span class="card-body">
+              <span class="card-title">个性化</span>
+              <span class="card-desc">背景、颜色和任务栏</span>
+            </span>
+            <span class="card-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 个性化 -->
+      <section class="page hidden" data-page="personalization">
+        <div class="page-header">
+          <button class="win-btn SubtleButtonStyle back-btn" data-back type="button" aria-label="返回主页">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">
+              <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+            </svg>
+          </button>
+          <h1 class="page-title">个性化</h1>
+        </div>
+
+        <div class="section-label">背景</div>
+        <div class="settings-card">
+          <div class="card-block">
+            <div class="bg-preview" id="bg-preview">
+              <span class="bg-preview-empty">无背景</span>
+            </div>
+            <div class="bg-actions">
+              <button class="win-btn" id="btn-bg-pick" type="button">浏览图片</button>
+              <button class="win-btn SubtleButtonStyle" id="btn-bg-clear" type="button">清除背景</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label">颜色</div>
+        <div class="option-group" id="theme-options">
+          <button class="option-card" data-theme="bright" type="button">
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-body">
+              <span class="option-title">亮色</span>
+              <span class="option-desc">明亮的窗口和浅色外观</span>
+            </span>
+          </button>
+          <button class="option-card" data-theme="dark" type="button">
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-body">
+              <span class="option-title">暗色</span>
+              <span class="option-desc">深色窗口和深色外观</span>
+            </span>
+          </button>
+        </div>
+
+        <div class="settings-card accent-card">
+          <div class="card-row">
+            <div class="card-body">
+              <div class="card-title">主题色</div>
+              <div class="card-desc">选择系统强调色</div>
+            </div>
+          </div>
+          <div class="swatch-row" id="swatches"></div>
+          <div class="custom-color-row">
+            <span>自定义颜色</span>
+            <input type="color" id="accent-input" aria-label="自定义主题色" value="#0078D4">
+          </div>
+        </div>
+
+        <div class="section-label">任务栏</div>
+        <div class="option-group" id="taskbar-options">
+          <button class="option-card" data-taskbar="floating" type="button">
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-body">
+              <span class="option-title">浮动任务栏</span>
+              <span class="option-desc">任务栏悬浮于桌面底部，带圆角</span>
+            </span>
+          </button>
+          <button class="option-card" data-taskbar="docked" type="button">
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-body">
+              <span class="option-title">停靠任务栏</span>
+              <span class="option-desc">任务栏停靠铺满桌面底部</span>
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 账户 -->
+      <section class="page hidden" data-page="accounts">
+        <div class="page-header">
+          <button class="win-btn SubtleButtonStyle back-btn" data-back type="button" aria-label="返回主页">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">
+              <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+            </svg>
+          </button>
+          <h1 class="page-title">账户</h1>
+        </div>
+
+        <!-- 账户信息 -->
+        <div class="settings-card account-hero">
+          <div class="account-hero-avatar" id="account-hero-avatar">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="30" height="30" aria-hidden="true">
+              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+            </svg>
+          </div>
+          <div class="account-hero-info">
+            <div class="account-hero-name" id="account-hero-name">用户</div>
+            <span class="account-hero-role" id="account-hero-role">用户</span>
+          </div>
+        </div>
+
+        <div class="section-label">账户设置</div>
+
+        <div class="settings-card">
+          <div class="card-row clickable" id="row-your-info" role="button" tabindex="0" title="功能开发中">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              </svg>
+            </span>
+            <span class="card-body">
+              <span class="card-title">你的信息</span>
+              <span class="card-desc">个人资料、头像</span>
+            </span>
+            <span class="card-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="card-row clickable" id="row-login-options" role="button" tabindex="0" title="功能开发中">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+              </svg>
+            </span>
+            <span class="card-body">
+              <span class="card-title">登录选项</span>
+              <span class="card-desc">密码</span>
+            </span>
+            <span class="card-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="settings-card" id="card-other-accounts">
+          <div class="card-row clickable" id="row-other-accounts" role="button" tabindex="0" title="功能开发中">
+            <span class="card-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+              </svg>
+            </span>
+            <span class="card-body">
+              <span class="card-title">其他账户</span>
+              <span class="card-desc">管理此电脑上的其他用户</span>
+            </span>
+            <span class="card-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 重命名对话框 -->
+  <div class="dialog-overlay hidden" id="dialog-overlay">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <h2 class="dialog-title" id="dialog-title">重命名设备</h2>
+      <div class="dialog-body">
+        <label class="dialog-label" for="dialog-input">设备名称</label>
+        <input class="win-textbox" id="dialog-input" type="text" maxlength="64">
+        <p class="dialog-hint">提示：当前为界面演示，实际重命名需要管理员权限，将在后续版本接入。</p>
+      </div>
+      <div class="dialog-footer">
+        <button class="win-btn" id="btn-dialog-cancel" type="button">取消</button>
+        <button class="win-btn AccentButtonStyle" id="btn-dialog-ok" type="button">重命名</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

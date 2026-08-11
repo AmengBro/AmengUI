@@ -10,7 +10,7 @@
       "userid": 2,
       "username": "Ad",
       "photo": null,
-      "permi": "user"
+      "permi": "sudo"
     },
     {
       "userid": 3,

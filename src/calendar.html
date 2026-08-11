@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>日历</title>
+  <link rel="stylesheet" href="calendar.css">
+</head>
+<body>
+  <!-- 独立置顶日历窗口（悬浮于所有窗口之上） -->
+  <div class="calendar-popup">
+    <!-- 日期标题区域 -->
+    <div class="calendar-header">
+      <div class="calendar-date-info">
+        <div class="calendar-date-main" id="calendar-date-main"></div>
+        <div class="calendar-date-lunar" id="calendar-date-lunar"></div>
+      </div>
+      <div class="calendar-time" id="calendar-time"></div>
+    </div>
+
+    <!-- 月份导航 -->
+    <div class="calendar-nav">
+      <button class="calendar-nav-btn" id="calendar-prev-month" title="上个月">‹</button>
+      <div class="calendar-month-year" id="calendar-month-year"></div>
+      <button class="calendar-nav-btn" id="calendar-next-month" title="下个月">›</button>
+    </div>
+
+    <!-- 星期标题 -->
+    <div class="calendar-weekdays">
+      <span>一</span>
+      <span>二</span>
+      <span>三</span>
+      <span>四</span>
+      <span>五</span>
+      <span>六</span>
+      <span>日</span>
+    </div>
+
+    <!-- 日期格子 -->
+    <div class="calendar-days" id="calendar-days"></div>
+  </div>
+
+  <script src="calendar.js"></script>
+</body>
+</html>

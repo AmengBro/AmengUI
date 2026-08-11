@@ -11,9 +11,6 @@ let isTaskbarFloating = true;
 // 剪贴板状态：null | { mode: 'copy'|'cut', app: Object }
 let clipboard = null;
 
-// 开始菜单加载标志，防止重复加载
-let isStartMenuLoading = false;
-
 // 右键菜单图标库（内联SVG）
 const MENU_ICONS = {
   open: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>',
@@ -21,10 +18,10 @@ const MENU_ICONS = {
   copy: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
   cut: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M9.64 7.64c.23-.5.36-1.05.36-1.64 0-2.21-1.79-4-4-4S2 3.79 2 6s1.79 4 4 4c.59 0 1.14-.13 1.64-.36L10 12l-2.36 2.36C7.14 14.13 6.59 14 6 14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4c0-.59-.13-1.14-.36-1.64L12 14l7 7h3v-1L9.64 7.64zM6 8c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm0 12c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm6-7.5c-.28 0-.5-.22-.5-.5s.22-.5.5-.5.5.22.5.5-.22.5-.5.5zM19 3l-6 6 2 2 7-7V3z"/></svg>',
   paste: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"/></svg>',
-  sendToDesktop: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>',
   remove: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
-  settings: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>'
+  settings: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
+  taskManager: '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>'
 };
 
 // 点击空白处取消应用选中状态
@@ -68,31 +65,6 @@ async function initTheme() {
 function applyAccentColor(color) {
   // 创建 CSS 变量
   document.documentElement.style.setProperty('--accent-color', color);
-  
-  // 应用到日历相关元素
-  const calendarDays = document.querySelectorAll('.calendar-day');
-  calendarDays.forEach(day => {
-    day.style.setProperty('--accent-color', color);
-  });
-  
-  // 更新今天日期的背景色
-  const todayElements = document.querySelectorAll('.calendar-day.today');
-  todayElements.forEach(el => {
-    el.style.backgroundColor = color;
-  });
-  
-  // 更新选中日期的边框和文字颜色
-  const selectedElements = document.querySelectorAll('.calendar-day.selected');
-  selectedElements.forEach(el => {
-    el.style.borderColor = color;
-    el.style.color = color;
-  });
-  
-  // 更新日历导航按钮悬停颜色
-  const navButtons = document.querySelectorAll('.calendar-nav-btn');
-  navButtons.forEach(btn => {
-    btn.style.setProperty('--accent-color', color);
-  });
 }
 
 /**
@@ -162,9 +134,25 @@ function showContextMenu(x, y, app) {
   });
 
   document.body.appendChild(menu);
+  clampContextMenuToViewport(menu, x, y);
 
   document.addEventListener('click', closeContextMenu);
   document.addEventListener('contextmenu', closeContextMenu);
+}
+
+/**
+ * 将右键菜单位置钳制在视口内，避免超出窗口/屏幕边缘
+ * @param {HTMLElement} menu - 已插入 DOM 的菜单元素
+ * @param {number} x - 原始鼠标 X 坐标
+ * @param {number} y - 原始鼠标 Y 坐标
+ */
+function clampContextMenuToViewport(menu, x, y) {
+  const rect = menu.getBoundingClientRect();
+  const margin = 8;
+  const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+  const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+  menu.style.left = `${Math.min(Math.max(x, margin), maxLeft)}px`;
+  menu.style.top = `${Math.min(Math.max(y, margin), maxTop)}px`;
 }
 
 /**
@@ -766,248 +754,6 @@ function updateTime() {
     const weekday = weekDays[now.getDay()];
     dateDisplay.textContent = `${month}月${day}日 周${weekday}`;
   }
-  
-  // 更新日历弹窗中的时间（精确到秒）
-  const calendarTime = document.getElementById('calendar-time');
-  if (calendarTime) {
-    const hours = now.getHours().toString().padStart(2, '0');
-    const minutes = now.getMinutes().toString().padStart(2, '0');
-    const seconds = now.getSeconds().toString().padStart(2, '0');
-    calendarTime.textContent = `${hours}:${minutes}:${seconds}`;
-  }
-}
-
-// 当前显示的年月
-let currentCalendarYear = new Date().getFullYear();
-let currentCalendarMonth = new Date().getMonth();
-
-// 节假日数据
-const holidays = {
-  '2026-06-19': '端午节'
-};
-
-// 农历日期映射
-const lunarMonths = ['正月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '冬月', '腊月'];
-const lunarDays = ['初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
-                   '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
-                   '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'];
-
-/**
- * 获取简单的农历日期（简化版）
- */
-function getLunarDate(year, month, day) {
-  // 简化的农历计算，实际应用中应该使用更精确的算法
-  const lunarMonthIndex = (month + 2) % 12;
-  const lunarDayIndex = (day - 1) % 30;
-  return `${lunarMonths[lunarMonthIndex]}${lunarDays[lunarDayIndex]}`;
-}
-
-/**
- * 渲染日历
- */
-function renderCalendar(year, month) {
-  const daysContainer = document.getElementById('calendar-days');
-  const monthYearElement = document.getElementById('calendar-month-year');
-  const dateMainElement = document.getElementById('calendar-date-main');
-  const dateLunarElement = document.getElementById('calendar-date-lunar');
-  
-  if (!daysContainer || !monthYearElement) return;
-  
-  // 更新月份年份显示
-  monthYearElement.textContent = `${year}年${month + 1}月`;
-  
-  // 获取当前日期（始终显示今天的日期信息）
-  const now = new Date();
-  const todayYear = now.getFullYear();
-  const todayMonth = now.getMonth();
-  const todayDay = now.getDate();
-  
-  // 更新日期信息显示（始终显示今天）
-  if (dateMainElement && dateLunarElement) {
-    const weekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-    const weekday = weekDays[now.getDay()];
-    
-    dateMainElement.textContent = `${todayMonth + 1}月${todayDay}日, ${weekday}`;
-    dateLunarElement.textContent = getLunarDate(todayYear, todayMonth, todayDay);
-  }
-  
-  // 获取选中日期（如果没有选中，使用今天）
-  let selectedDate = document.querySelector('.calendar-day.selected');
-  let selectedYear = year;
-  let selectedMonth = month;
-  let selectedDay = todayDay;
-  
-  if (selectedDate) {
-    selectedYear = parseInt(selectedDate.dataset.year);
-    selectedMonth = parseInt(selectedDate.dataset.month);
-    selectedDay = parseInt(selectedDate.dataset.day);
-  }
-  
-  // 获取当月第一天和最后一天
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  
-  // 清空日期格子
-  daysContainer.innerHTML = '';
-  
-  // 获取第一天是星期几（星期一为0）
-  let startDay = firstDay.getDay();
-  if (startDay === 0) startDay = 7; // 星期日转为7
-  startDay -= 1; // 转为从0开始（星期一为0）
-  
-  // 添加上个月的日期
-  const prevMonthLastDay = new Date(year, month, 0).getDate();
-  for (let i = startDay - 1; i >= 0; i--) {
-    const day = prevMonthLastDay - i;
-    const prevMonth = month === 0 ? 11 : month - 1;
-    const prevYear = month === 0 ? year - 1 : year;
-    addCalendarDay(daysContainer, prevYear, prevMonth, day, true, todayYear, todayMonth, todayDay, selectedYear, selectedMonth, selectedDay);
-  }
-  
-  // 添加当月的日期
-  for (let day = 1; day <= lastDay.getDate(); day++) {
-    addCalendarDay(daysContainer, year, month, day, false, todayYear, todayMonth, todayDay, selectedYear, selectedMonth, selectedDay);
-  }
-  
-  // 添加下个月的日期
-  const remainingCells = 42 - daysContainer.children.length; // 6行 * 7列
-  for (let day = 1; day <= remainingCells; day++) {
-    const nextMonth = month === 11 ? 0 : month + 1;
-    const nextYear = month === 11 ? year + 1 : year;
-    addCalendarDay(daysContainer, nextYear, nextMonth, day, true, todayYear, todayMonth, todayDay, selectedYear, selectedMonth, selectedDay);
-  }
-}
-
-/**
- * 添加日历日期格子
- */
-function addCalendarDay(container, year, month, day, isOtherMonth, todayYear, todayMonth, todayDay, selectedYear, selectedMonth, selectedDay) {
-  const dayElement = document.createElement('div');
-  dayElement.className = 'calendar-day';
-  dayElement.dataset.year = year;
-  dayElement.dataset.month = month;
-  dayElement.dataset.day = day;
-  
-  if (isOtherMonth) {
-    dayElement.classList.add('other-month');
-  }
-  
-  // 标记今天
-  if (year === todayYear && month === todayMonth && day === todayDay) {
-    dayElement.classList.add('today');
-  }
-  
-  // 标记选中日期（使用边框样式）
-  if (year === selectedYear && month === selectedMonth && day === selectedDay) {
-    dayElement.classList.add('selected');
-  }
-  
-  // 检查是否是节假日
-  const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const holidayName = holidays[dateKey];
-  
-  // 创建日期显示
-  const daySpan = document.createElement('span');
-  daySpan.textContent = day;
-  dayElement.appendChild(daySpan);
-  
-  // 添加农历日期或节假日
-  const lunarSpan = document.createElement('span');
-  if (holidayName) {
-    lunarSpan.textContent = holidayName;
-    dayElement.classList.add('holiday');
-  } else {
-    const lunarDate = getLunarDate(year, month, day);
-    // 只显示农历日期中的日期部分（去掉月份）
-    lunarSpan.textContent = lunarDate.replace(/[正二三四五六七八九十冬腊]月/, '');
-  }
-  dayElement.appendChild(lunarSpan);
-  
-  // 点击事件
-  dayElement.addEventListener('click', () => {
-    // 移除其他选中状态
-    const selectedDays = document.querySelectorAll('.calendar-day.selected');
-    selectedDays.forEach(el => el.classList.remove('selected'));
-    
-    // 设置当前选中
-    dayElement.classList.add('selected');
-  });
-  
-  container.appendChild(dayElement);
-}
-
-/**
- * 更新日历日期信息显示
- */
-function updateCalendarDateInfo(year, month, day) {
-  const dateMainElement = document.getElementById('calendar-date-main');
-  const dateLunarElement = document.getElementById('calendar-date-lunar');
-  
-  if (dateMainElement && dateLunarElement) {
-    const weekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-    const dateObj = new Date(year, month, day);
-    const weekday = weekDays[dateObj.getDay()];
-    
-    dateMainElement.textContent = `${month + 1}月${day}日, ${weekday}`;
-    dateLunarElement.textContent = getLunarDate(year, month, day);
-  }
-}
-
-/**
- * 绑定日历事件
- */
-function bindCalendarEvents() {
-  const timeBtn = document.getElementById('taskbar-time-btn');
-  const calendarPopup = document.getElementById('calendar-popup');
-  const prevMonthBtn = document.getElementById('calendar-prev-month');
-  const nextMonthBtn = document.getElementById('calendar-next-month');
-  
-  // 点击时间按钮切换日历显示
-  if (timeBtn && calendarPopup) {
-    timeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      calendarPopup.classList.toggle('hidden');
-      
-      // 如果显示日历，渲染当前月份
-      if (!calendarPopup.classList.contains('hidden')) {
-        renderCalendar(currentCalendarYear, currentCalendarMonth);
-      }
-    });
-  }
-  
-  // 点击空白处关闭日历
-  document.addEventListener('click', (e) => {
-    const target = e.target;
-    if (!target.closest('.taskbar-time-container') && !calendarPopup.classList.contains('hidden')) {
-      calendarPopup.classList.add('hidden');
-    }
-  });
-  
-  // 上一个月
-  if (prevMonthBtn) {
-    prevMonthBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      currentCalendarMonth--;
-      if (currentCalendarMonth < 0) {
-        currentCalendarMonth = 11;
-        currentCalendarYear--;
-      }
-      renderCalendar(currentCalendarYear, currentCalendarMonth);
-    });
-  }
-  
-  // 下一个月
-  if (nextMonthBtn) {
-    nextMonthBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      currentCalendarMonth++;
-      if (currentCalendarMonth > 11) {
-        currentCalendarMonth = 0;
-        currentCalendarYear++;
-      }
-      renderCalendar(currentCalendarYear, currentCalendarMonth);
-    });
-  }
 }
 
 // 暴露到全局作用域
@@ -1045,230 +791,70 @@ document.addEventListener('DOMContentLoaded', () => {
   updateTime();
   // 每秒更新时间
   setInterval(updateTime, 1000);
-  
-  // 绑定日历事件
-  bindCalendarEvents();
-  
+
   // 绑定控制中心图标事件
   bindControlCenterEvents();
-  
-  // 初始化开始菜单
-  initStartMenu();
+
+  // 绑定开始菜单/日历浮层按钮（独立置顶窗口）
+  bindFloatingMenuEvents();
+
+  // 绑定任务栏右键菜单
+  bindTaskbarContextMenu();
 });
 
-// ==================== 开始菜单功能 ====================
+// ==================== 浮层菜单（独立置顶窗口） ====================
 
 /**
- * 初始化开始菜单
+ * 绑定开始按钮/时间按钮到独立浮层窗口，并同步高亮态与桌面刷新
  */
-function initStartMenu() {
+function bindFloatingMenuEvents() {
   const startBtn = document.getElementById('start-btn');
-  const startMenu = document.getElementById('start-menu');
-  
-  // 点击开始按钮切换菜单显示
-  if (startBtn && startMenu) {
-    startBtn.addEventListener('click', (e) => {
+  const timeBtn = document.getElementById('taskbar-time-btn');
+
+  if (startBtn) {
+    startBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      toggleStartMenu();
+      try {
+        const r = await window.electronAPI.startMenu.toggle({ isTaskbarFloating });
+        startBtn.classList.toggle('active', !!(r && r.open));
+      } catch (err) {
+        console.error('[Dashboard] 打开开始菜单失败:', err);
+      }
     });
   }
-  
-  // 点击空白处关闭菜单
-  document.addEventListener('click', (e) => {
-    const target = e.target;
-    // 确认弹窗打开时不关闭开始菜单
-    if (target.closest('.modal-overlay')) return;
-    if (!target.closest('.start-menu') && !target.closest('.start-btn')) {
-      closeStartMenu();
-    }
-  });
-  
-  // ESC 键关闭菜单
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      const overlay = document.getElementById('modal-overlay');
-      if (overlay && !overlay.classList.contains('hidden')) return;
-      closeStartMenu();
-    }
-  });
-  
-  // 加载应用列表
-  loadStartMenuApps();
-  
-  // 加载用户信息
-  loadUserInfo();
-  
-  // 绑定电源按钮
-  bindPowerButtons();
-  
-  // 绑定用户菜单
-  bindUserMenu();
-  
-  // 绑定模态框事件
-  bindModalEvents();
-}
 
-/**
- * 切换开始菜单显示/隐藏
- */
-function toggleStartMenu() {
-  const startMenu = document.getElementById('start-menu');
-  if (startMenu) {
-    if (startMenu.classList.contains('hidden')) {
-      startMenu.classList.remove('hidden');
-    } else {
-      startMenu.classList.add('hidden');
-    }
-  }
-}
-
-/**
- * 关闭开始菜单
- */
-function closeStartMenu() {
-  const startMenu = document.getElementById('start-menu');
-  if (startMenu && !startMenu.classList.contains('hidden')) {
-    startMenu.classList.add('hidden');
-  }
-}
-
-/**
- * 加载用户信息到开始菜单
- */
-async function loadUserInfo() {
-  try {
-    // 获取最后登录的用户ID
-    const lastLoginUserId = await window.electronAPI.config.getLastLoginUserId();
-    
-    // 获取所有用户列表
-    const users = await window.electronAPI.config.getUsers();
-    if (!users || users.length === 0) return;
-    
-    // 根据最后登录的用户ID查找用户
-    const user = users.find(u => u.userid === lastLoginUserId);
-    
-    // 如果找不到，使用第一个用户作为备选
-    const currentUser = user || users[0];
-    
-    // 更新用户名显示
-    const usernameElement = document.getElementById('start-menu-username');
-    if (usernameElement && currentUser.username) {
-      usernameElement.textContent = currentUser.username;
-    }
-    
-  } catch (error) {
-    console.error('Failed to load user info:', error);
-  }
-}
-
-/**
- * 加载开始菜单应用列表
- */
-async function loadStartMenuApps() {
-  if (isStartMenuLoading) return;
-  isStartMenuLoading = true;
-  
-  try {
-    const userId = await getCurrentUserId();
-    // 完整应用来源：/usr/share/applications 下的所有 .app + 用户桌面快捷方式
-    const [desktopData, allAppsRes] = await Promise.all([
-      window.electronAPI.config.getUserDesktop(userId),
-      window.electronAPI.apps.listAll().catch(() => ({ success: false, apps: [] })),
-    ]);
-    const desktopApps = (desktopData && desktopData.desktopapp) || [];
-    const systemApps = (allAppsRes && allAppsRes.apps) || [];
-    const appList = document.getElementById('start-menu-app-list');
-    
-    if (!appList) {
-      isStartMenuLoading = false;
-      return;
-    }
-    
-    appList.innerHTML = '';
-    
-    // 合并去重：系统应用优先，再补桌面快捷方式（按 start 去重）
-    const apps = [];
-    const seen = new Set();
-    for (const app of systemApps) {
-      const start = app.appName;
-      if (!start || seen.has(start)) continue;
-      seen.add(start);
-      apps.push({ start, name: app.name || start, icon: app.icon || null, description: app.description || '' });
-    }
-    for (const app of desktopApps) {
-      if (!app.start || seen.has(app.start)) continue;
-      seen.add(app.start);
-      apps.push({ start: app.start, name: app.name, icon: app.icon || null });
-    }
-    
-    if (apps.length === 0) {
-      isStartMenuLoading = false;
-      return;
-    }
-    
-    for (const app of apps) {
-      const appItem = document.createElement('div');
-      appItem.className = 'start-menu-app-item';
-      appItem.dataset.appName = app.start;
-      
-      let iconPath = app.icon;
-      
-      if (!iconPath || iconPath.trim() === '' || !isValidImagePath(iconPath)) {
-        const appInfo = await getAppInfo(app.start);
-        if (appInfo && appInfo.icon && isValidImagePath(appInfo.icon)) {
-          iconPath = appInfo.icon;
-        }
+  if (timeBtn) {
+    timeBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        const r = await window.electronAPI.calendar.toggle({ isTaskbarFloating });
+        timeBtn.classList.toggle('active', !!(r && r.open));
+      } catch (err) {
+        console.error('[Dashboard] 打开日历失败:', err);
       }
-      
-      const iconElement = document.createElement('img');
-      iconElement.className = 'start-menu-app-icon';
-      
-      const finalIconPath = isValidImagePath(iconPath) ? iconPath : '../difproico.png';
-      iconElement.src = finalIconPath;
-      
-      iconElement.onerror = () => {
-        iconElement.src = '../difproico.png';
-      };
-      
-      const nameElement = document.createElement('span');
-      nameElement.className = 'start-menu-app-name';
-      nameElement.textContent = app.name;
-      
-      appItem.appendChild(iconElement);
-      appItem.appendChild(nameElement);
-      appList.appendChild(appItem);
-      
-      appItem.addEventListener('click', async () => {
-        console.log('Launching app from start menu:', app.start);
-        closeStartMenu();
-        const result = await window.electronAPI.app.launch(app.start);
-        if (!result.success) {
-          alert(`启动失败: ${result.error}`);
-        }
-      });
-      
-      // 右键：发送到桌面
-      appItem.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        showStartMenuContextMenu(e.clientX, e.clientY, {
-          start: app.start,
-          name: app.name,
-          icon: app.icon,
-        });
-      });
-    }
-  } catch (error) {
-    console.error('Failed to load start menu apps:', error);
-  } finally {
-    isStartMenuLoading = false;
+    });
   }
+
+  // 浮层窗口内部关闭（ESC/失焦）时同步按钮高亮
+  window.electronAPI.startMenu.onState((open) => {
+    if (startBtn) startBtn.classList.toggle('active', !!open);
+  });
+  window.electronAPI.calendar.onState((open) => {
+    if (timeBtn) timeBtn.classList.toggle('active', !!open);
+  });
+
+  // 开始菜单“发送到桌面”后刷新桌面网格
+  window.electronAPI.desktop.onRefresh(() => {
+    refreshDesktop();
+  });
 }
 
+// ==================== 任务栏右键菜单 ====================
+
 /**
- * 开始菜单应用右键菜单（发送到桌面）
+ * 任务栏右键菜单（设置 / 任务管理器）
  */
-function showStartMenuContextMenu(x, y, entry) {
+function showTaskbarContextMenu(x, y) {
   closeContextMenu();
   const menu = document.createElement('div');
   menu.className = 'context-menu';
@@ -1276,237 +862,71 @@ function showStartMenuContextMenu(x, y, entry) {
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
 
-  const item = document.createElement('div');
-  item.className = 'context-menu-item';
-  const iconSpan = document.createElement('span');
-  iconSpan.className = 'context-menu-icon';
-  iconSpan.innerHTML = MENU_ICONS.sendToDesktop;
-  const textSpan = document.createElement('span');
-  textSpan.textContent = '发送到桌面';
-  item.appendChild(iconSpan);
-  item.appendChild(textSpan);
-  item.addEventListener('click', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    closeContextMenu();
-    sendToDesktop(entry);
+  const items = [
+    {
+      label: '设置',
+      icon: MENU_ICONS.settings,
+      action: () => openSettings(),
+    },
+    {
+      label: '任务管理器',
+      icon: MENU_ICONS.taskManager,
+      action: () => launchTaskManager(),
+    },
+  ];
+
+  items.forEach((it) => {
+    const menuItem = document.createElement('div');
+    menuItem.className = 'context-menu-item';
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'context-menu-icon';
+    iconSpan.innerHTML = it.icon;
+    const textSpan = document.createElement('span');
+    textSpan.textContent = it.label;
+    menuItem.appendChild(iconSpan);
+    menuItem.appendChild(textSpan);
+    menuItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      closeContextMenu();
+      it.action();
+    });
+    menu.appendChild(menuItem);
   });
-  menu.appendChild(item);
+
   document.body.appendChild(menu);
+  clampContextMenuToViewport(menu, x, y);
   document.addEventListener('click', closeContextMenu);
   document.addEventListener('contextmenu', closeContextMenu);
 }
 
 /**
- * 发送应用到桌面（写入 ./config/{userid}/desktop.json）
+ * 启动任务管理器（SystemInformer，com.sysinformer.app）
  */
-async function sendToDesktop(entry) {
+async function launchTaskManager() {
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) return;
-    const desktopData = await window.electronAPI.config.getUserDesktop(userId);
-    const desktopApps = (desktopData && desktopData.desktopapp) || [];
-    const pos = getNextDesktopPosition(desktopApps);
-    const newApp = {
-      name: entry.name,
-      start: entry.start,
-      icon: entry.icon || null,
-      x: pos.x,
-      y: pos.y,
-    };
-    await window.electronAPI.config.addDesktopApp(userId, newApp);
-    console.log('[StartMenu] Sent to desktop:', entry.name);
-    const container = document.getElementById('desktop-apps');
-    if (container) {
-      await refreshDesktop();
+    const result = await window.electronAPI.app.launch('com.sysinformer.app');
+    if (!result || !result.success) {
+      alert(`任务管理器启动失败: ${(result && result.error) || '未知错误'}`);
     }
-  } catch (error) {
-    console.error('[StartMenu] Send to desktop failed:', error);
+  } catch (err) {
+    console.error('[Dashboard] 任务管理器启动失败:', err);
+    alert('任务管理器启动失败: ' + err.message);
   }
 }
 
 /**
- * 计算下一个桌面快捷方式的网格位置
+ * 绑定任务栏右键菜单
  */
-function getNextDesktopPosition(desktopApps) {
-  const col = desktopApps.length % 5;
-  const row = Math.floor(desktopApps.length / 5);
-  return { x: 15 + col * 95, y: 15 + row * 105 };
-}
-
-/**
- * 绑定电源按钮事件
- */
-let confirmCallback = null;
-
-function showConfirmModal(message, callback, showCancel = true) {
-  confirmCallback = callback;
-  const modalOverlay = document.getElementById('modal-overlay');
-  const modalMessage = document.getElementById('modal-message');
-  const cancelBtn = document.getElementById('modal-btn-cancel');
-  modalMessage.textContent = message;
-  if (cancelBtn) {
-    cancelBtn.classList.toggle('hidden', !showCancel);
-  }
-  modalOverlay.classList.remove('hidden');
-}
-
-function bindModalEvents() {
-  const cancelBtn = document.getElementById('modal-btn-cancel');
-  const confirmBtn = document.getElementById('modal-btn-confirm');
-  const modalOverlay = document.getElementById('modal-overlay');
-  
-  if (cancelBtn) {
-    cancelBtn.addEventListener('click', () => {
-      modalOverlay.classList.add('hidden');
-      confirmCallback = null;
-    });
-  }
-  
-  if (confirmBtn) {
-    confirmBtn.addEventListener('click', () => {
-      modalOverlay.classList.add('hidden');
-      if (confirmCallback) {
-        confirmCallback();
-        confirmCallback = null;
-      }
-    });
-  }
-  
-  if (modalOverlay) {
-    modalOverlay.addEventListener('click', (e) => {
-      if (e.target === modalOverlay) {
-        modalOverlay.classList.add('hidden');
-        confirmCallback = null;
-      }
-    });
-  }
-}
-
-function bindPowerButtons() {
-  const powerBtn = document.getElementById('power-btn-main');
-  const powerSubmenu = document.getElementById('power-submenu');
-  
-  // 点击电源按钮切换子菜单
-  if (powerBtn && powerSubmenu) {
-    powerBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (powerSubmenu.classList.contains('hidden')) {
-        powerSubmenu.classList.remove('hidden');
-      } else {
-        powerSubmenu.classList.add('hidden');
-      }
-    });
-  }
-  
-  // 点击其他地方关闭子菜单
-  document.addEventListener('click', (e) => {
-    // 确认弹窗打开时不关闭电源子菜单
-    if (e.target.closest('.modal-overlay')) return;
-    if (powerSubmenu && !powerSubmenu.classList.contains('hidden')) {
-      powerSubmenu.classList.add('hidden');
-    }
+function bindTaskbarContextMenu() {
+  const taskbar = document.getElementById('taskbar');
+  if (!taskbar) return;
+  taskbar.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closeContextMenu();
+    showTaskbarContextMenu(e.clientX, e.clientY);
   });
-  
-  // 关机按钮
-  const shutdownBtn = document.getElementById('start-menu-shutdown');
-  if (shutdownBtn) {
-    shutdownBtn.addEventListener('click', () => {
-      // 与登录页一致的交互：确认后显示“正在关机”提示
-      showConfirmModal('确定要关机吗？', () => {
-        showConfirmModal('正在关机...', () => {}, false);
-      }, false);
-    });
-  }
-  
-  // 重启按钮
-  const restartBtn = document.getElementById('start-menu-restart');
-  if (restartBtn) {
-    restartBtn.addEventListener('click', () => {
-      // 与登录页一致的交互：确认后显示“正在重新启动”提示
-      showConfirmModal('确定要重新启动吗？', () => {
-        showConfirmModal('正在重新启动...', () => {}, false);
-      }, false);
-    });
-  }
-  
-  // Shell模式按钮
-  const shellBtn = document.getElementById('start-menu-shell');
-  if (shellBtn) {
-    shellBtn.addEventListener('click', () => {
-      showConfirmModal('确定要进入Shell模式吗？', () => {
-        window.electronAPI.power.shell();
-      }, false);
-    });
-  }
-}
-
-/**
- * 关闭电源子菜单
- */
-function closePowerSubmenu() {
-  const powerSubmenu = document.getElementById('power-submenu');
-  if (powerSubmenu && !powerSubmenu.classList.contains('hidden')) {
-    powerSubmenu.classList.add('hidden');
-  }
-}
-
-/**
- * 绑定用户菜单按钮事件
- */
-function bindUserMenu() {
-  const userMenuBtn = document.getElementById('user-menu-btn');
-  const userSubmenu = document.getElementById('user-submenu');
-  
-  if (userMenuBtn && userSubmenu) {
-    userMenuBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closePowerSubmenu();
-      if (userSubmenu.classList.contains('hidden')) {
-        userSubmenu.classList.remove('hidden');
-      } else {
-        userSubmenu.classList.add('hidden');
-      }
-    });
-  }
-  
-  document.addEventListener('click', () => {
-    if (userSubmenu && !userSubmenu.classList.contains('hidden')) {
-      userSubmenu.classList.add('hidden');
-    }
-  });
-  
-  const lockBtn = document.getElementById('start-menu-lock');
-  if (lockBtn) {
-    lockBtn.addEventListener('click', () => {
-      closeUserSubmenu();
-      closeStartMenu();
-      clipboard = null;
-      window.electronAPI.screen.lock();
-    });
-  }
-
-  const logoutBtn = document.getElementById('start-menu-logout');
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-      closeUserSubmenu();
-      closeStartMenu();
-      showConfirmModal('确认注销吗？', () => {
-        clipboard = null;
-        window.electronAPI.window.logout();
-      });
-    });
-  }
-}
-
-/**
- * 关闭用户子菜单
- */
-function closeUserSubmenu() {
-  const userSubmenu = document.getElementById('user-submenu');
-  if (userSubmenu && !userSubmenu.classList.contains('hidden')) {
-    userSubmenu.classList.add('hidden');
-  }
 }
 
 /**

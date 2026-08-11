@@ -1,0 +1,611 @@
+/* ============================================================
+   独立开始菜单窗口（悬浮置顶）
+   样式沿用原 dashboard 内嵌开始菜单，仅适配独立窗口布局。
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 开始菜单容器（占满整个透明窗口） */
+.start-menu {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: rgba(30, 30, 30, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUp 0.2s ease-out;
+}
+
+/* 滑入动画 */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 用户信息区域 */
+.start-menu-user {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.user-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-color);
+  background-color: color-mix(in srgb, var(--accent-color) 30%, transparent);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-status {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* 分隔线 */
+.start-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+/* 应用区域 */
+.start-menu-apps {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.start-menu-apps::-webkit-scrollbar {
+  width: 6px;
+}
+
+.start-menu-apps::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.start-menu-apps::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.start-menu-apps::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+body.theme-bright .start-menu-apps::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.start-menu-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-left: 8px;
+}
+
+.start-menu-app-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.start-menu-app-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.start-menu-app-item:hover {
+  background: color-mix(in srgb, var(--accent-color) 20%, transparent);
+}
+
+.start-menu-app-item.selected {
+  background: color-mix(in srgb, var(--accent-color) 30%, transparent);
+}
+
+.start-menu-app-icon {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.start-menu-app-name {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 电源按钮区域 */
+.start-menu-power {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+/* 电源按钮容器 */
+.power-menu-container {
+  position: relative;
+}
+
+/* 电源主按钮 */
+.power-btn-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.power-btn-main:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #EF4444;
+}
+
+/* 电源子菜单 */
+.power-submenu {
+  position: absolute;
+  bottom: 44px;
+  right: 0;
+  min-width: 200px;
+  width: auto;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  z-index: 2001;
+  animation: slideUp 0.15s ease-out;
+}
+
+.power-submenu.hidden {
+  display: none;
+}
+
+.power-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.power-submenu-item svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.power-submenu-item:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.power-submenu-item:active {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(0.98);
+}
+
+/* 用户菜单按钮 */
+.user-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.user-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.user-submenu {
+  position: absolute;
+  top: 80px;
+  right: 16px;
+  min-width: 140px;
+  width: auto;
+  background: rgba(40, 40, 40, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.user-submenu.hidden {
+  display: none;
+}
+
+.user-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.user-submenu-item svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.user-submenu-item:hover {
+  background: color-mix(in srgb, var(--accent-color) 20%, transparent);
+}
+
+/* 右键菜单（发送到桌面） */
+.context-menu {
+  position: fixed;
+  background: rgba(32, 32, 32, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  z-index: 3000;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: #fff;
+  font-size: 13px;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.context-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.context-menu-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 亮色模式 */
+body.theme-bright .start-menu {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+body.theme-bright .start-menu-user {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .user-avatar {
+  color: #4169E1;
+  background: rgba(65, 105, 225, 0.2);
+}
+
+body.theme-bright .user-name {
+  color: #333;
+}
+
+body.theme-bright .user-status {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+body.theme-bright .start-menu-divider {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .start-menu-section-title {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+body.theme-bright .start-menu-app-item:hover {
+  background: rgba(65, 105, 225, 0.15);
+}
+
+body.theme-bright .start-menu-app-item.selected {
+  background: rgba(65, 105, 225, 0.25);
+}
+
+body.theme-bright .start-menu-app-name {
+  color: #333;
+}
+
+body.theme-bright .start-menu-power {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .power-btn-main {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+body.theme-bright .power-btn-main:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #DC2626;
+}
+
+body.theme-bright .power-submenu {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .power-submenu-item {
+  color: #333;
+}
+
+body.theme-bright .power-submenu-item:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .power-submenu-item:active {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+body.theme-bright .user-menu-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+body.theme-bright .user-menu-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #333;
+}
+
+body.theme-bright .user-submenu {
+  background: rgba(255, 255, 255, 0.99);
+  border-color: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+body.theme-bright .user-submenu-item {
+  color: #333;
+}
+
+body.theme-bright .user-submenu-item:hover {
+  background: rgba(65, 105, 225, 0.15);
+}
+
+body.theme-bright .context-menu {
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+body.theme-bright .context-menu-item {
+  color: #333;
+}
+
+body.theme-bright .context-menu-item:hover {
+  background: rgba(65, 105, 225, 0.15);
+}
+
+/* 模态确认弹窗 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-box {
+  position: fixed;
+  left: 30px;
+  bottom: 80px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 20px;
+  min-width: 200px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.modal-message {
+  color: white;
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.modal-btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.modal-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.modal-btn:active {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(0.98);
+}
+
+.modal-btn-cancel,
+.modal-btn-confirm {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.modal-btn-cancel:hover,
+.modal-btn-confirm:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.modal-btn.hidden {
+  display: none;
+}
+
+body.theme-bright .modal-box {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .modal-message {
+  color: #333;
+}
+
+body.theme-bright .modal-btn,
+body.theme-bright .modal-btn-cancel,
+body.theme-bright .modal-btn-confirm {
+  background: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+body.theme-bright .modal-btn:hover,
+body.theme-bright .modal-btn-cancel:hover,
+body.theme-bright .modal-btn-confirm:hover {
+  background: rgba(0, 0, 0, 0.2);
+}

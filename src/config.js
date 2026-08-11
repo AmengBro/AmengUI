@@ -131,6 +131,104 @@ async function saveUsers(users) {
 }
 
 /**
+ * 确保用户配置中存在 login 数据源（config.json 不存在或没有 login 时，从用户条目补齐）
+ * @param {number} userId - 用户ID
+ * @param {Object} loginUser - 用于补齐 login 的用户条目（含 username/password/photo/permi）
+ */
+async function ensureLoginConfig(userId, loginUser) {
+  const userConfigPath = getUserConfigPath(userId);
+  let config = null;
+  try {
+    config = JSON.parse(await fs.readFile(userConfigPath, 'utf8'));
+  } catch {
+    // 不存在或损坏，走新建
+  }
+  if (config && config.login) return; // 已有 login 数据源
+
+  const login = {
+    userid: userId,
+    username: (loginUser && loginUser.username) || '',
+    password: (loginUser && loginUser.password) || '',
+    photo: (loginUser && loginUser.photo) || null,
+    permi: (loginUser && loginUser.permi) || 'user'
+  };
+  await saveJSON(userConfigPath, config ? { ...config, login } : {
+    login,
+    profile: {
+      loginbg: null,
+      themebd: 'dark',
+      themecolor: '#0078D4'
+    }
+  });
+}
+
+/**
+ * 启动时同步：以各用户 config/{userid}/config.json 中的 login 字段为准重建 users.json。
+ *
+ * 数据模型：用户的身份与凭证只保存在 config/{userid}/config.json（login 块），
+ * users.json 只是这些 login 字段的聚合视图，启动时自动跟随。
+ * 因此手动修改请直接改 config/{userid}/config.json，重启后 users.json 自动同步，
+ * 不会再出现“改了 users.json 没生效”或两处不一致的问题。
+ *
+ * - 全新安装（无任何用户配置目录）：保留默认用户列表，并为其补齐配置目录，
+ *   避免懒加载生成空 login 导致下次同步时覆盖默认值
+ * - 幂等：重复执行只按当前 config.json 重建，无累积副作用
+ */
+async function syncUsersFromConfig() {
+  try {
+    await ensureConfigDir();
+
+    const entries = await fs.readdir(CONFIG_DIR, { withFileTypes: true });
+    const userDirs = entries.filter((e) => e.isDirectory() && /^\d+$/.test(e.name));
+
+    // 全新安装：没有任何用户配置目录
+    if (userDirs.length === 0) {
+      let existing = null;
+      try {
+        const data = JSON.parse(await fs.readFile(USERS_FILE, 'utf8'));
+        if (Array.isArray(data.users) && data.users.length > 0) existing = data.users;
+      } catch {
+        // users.json 不存在，使用默认用户
+      }
+      const users = existing || defaultUsers;
+      if (!existing) {
+        await saveUsers(users);
+      }
+      for (const user of users) {
+        await ensureUserDir(user.userid);
+        await ensureLoginConfig(user.userid, user);
+      }
+      return;
+    }
+
+    // 从每个用户目录的 config.json login 重建 users.json（不含 password，密码只存在 config.json）
+    const users = [];
+    for (const dir of userDirs) {
+      const userId = Number(dir.name);
+      let config;
+      try {
+        config = JSON.parse(await fs.readFile(getUserConfigPath(userId), 'utf8'));
+      } catch {
+        continue; // 目录没有 config.json 或已损坏，跳过
+      }
+      const login = config && config.login;
+      if (!login) continue;
+      users.push({
+        userid: login.userid !== undefined ? login.userid : userId,
+        username: login.username !== undefined ? login.username : '',
+        photo: login.photo !== undefined ? login.photo : null,
+        permi: login.permi !== undefined ? login.permi : 'user'
+      });
+    }
+
+    users.sort((a, b) => a.userid - b.userid);
+    await saveUsers(users);
+  } catch (error) {
+    console.error('Failed to sync users from config:', error.message);
+  }
+}
+
+/**
  * 获取用户配置（包含login和profile）
  * @param {number} userId - 用户ID
  * @returns {Promise<Object>} 用户配置
@@ -497,6 +595,7 @@ async function updateDesktopAppPosition(userId, appId, x, y) {
 module.exports = {
   getUsers,
   saveUsers,
+  syncUsersFromConfig,
   getSettings,
   getUserConfig,
   saveUserConfig,
