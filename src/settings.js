@@ -342,6 +342,175 @@ function closeRenameDialog() {
 }
 
 /* ============================================================
+   账户页：你的信息（长格式名称 / 展开面板 / 全名与头像修改）
+   ============================================================ */
+
+/**
+ * 渲染账户信息（左侧卡片 + 账户主页 + “你的信息”面板）
+ */
+function renderAccountInfo() {
+  // 左侧账户卡片
+  const nameEl = document.getElementById('account-name');
+  const subEl = document.getElementById('account-sub');
+  const avatarBox = document.getElementById('account-avatar');
+  if (nameEl) nameEl.textContent = state.account.nickname || state.account.username || '用户';
+  if (subEl) subEl.textContent = state.account.email || state.account.roleLabel || '本地账户';
+  if (avatarBox) {
+    avatarBox.innerHTML = state.account.avatar
+      ? `<img src="${state.account.avatar}" alt="">`
+      : '<svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+  }
+  // 无头像时禁用“清除头像”
+  const btnClearAvatar = document.getElementById('btn-clear-avatar');
+  if (btnClearAvatar) btnClearAvatar.disabled = !state.account.avatar;
+
+  // 账户主页：长格式名称 Nick(username) / 角色徽章 / 头像
+  const heroName = document.getElementById('account-hero-name');
+  const heroRole = document.getElementById('account-hero-role');
+  const heroAvatar = document.getElementById('account-hero-avatar');
+  if (heroName) {
+    const nick = state.account.nickname || state.account.username || '用户';
+    const login = state.account.loginName || '';
+    heroName.textContent = login && login !== nick ? `${nick} (${login})` : nick;
+  }
+  if (heroRole) heroRole.textContent = state.account.roleLabel || '用户';
+  if (heroAvatar) {
+    heroAvatar.innerHTML = state.account.avatar
+      ? `<img src="${state.account.avatar}" alt="">`
+      : '<svg viewBox="0 0 24 24" fill="currentColor" width="30" height="30" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+  }
+
+  // “你的信息”展开面板
+  const loginEl = document.getElementById('info-login-name');
+  const uidEl = document.getElementById('info-user-id');
+  const permEl = document.getElementById('info-permission');
+  const nickInput = document.getElementById('input-nickname');
+  if (loginEl) loginEl.textContent = state.account.loginName || '-';
+  if (uidEl) uidEl.textContent = String(state.account.userId ?? '-');
+  if (permEl) permEl.textContent = state.account.roleLabel || '-';
+  if (nickInput) nickInput.value = state.account.nickname || state.account.username || '';
+
+  // “其他账户”仅对管理员级账户（root/sudo）开放
+  const otherAccountsCard = document.getElementById('card-other-accounts');
+  if (otherAccountsCard) {
+    const privileged = state.account.permi === 'root' || state.account.permi === 'sudo';
+    otherAccountsCard.classList.toggle('hidden', !privileged);
+  }
+}
+
+/**
+ * “你的信息”面板内的状态提示
+ */
+function setInfoStatus(message, type) {
+  const status = document.getElementById('info-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.classList.toggle('hidden', !message);
+  status.classList.toggle('success', type === 'success');
+  status.classList.toggle('error', type === 'error');
+}
+
+/**
+ * 绑定账户页交互：“你的信息”展开、全名修改、头像更换
+ */
+function bindAccountPageEvents() {
+  const row = document.getElementById('row-your-info');
+  const expander = document.getElementById('info-expander');
+
+  if (row && expander) {
+    const toggle = () => {
+      const open = expander.classList.toggle('open');
+      row.classList.toggle('expanded', open);
+      row.setAttribute('aria-expanded', String(open));
+    };
+    row.addEventListener('click', toggle);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  }
+
+  // 全名（昵称）更改：经 config.updateUser 写回 passwd/shadow，避免被配置监听覆盖
+  const btnNick = document.getElementById('btn-change-nickname');
+  if (btnNick) {
+    btnNick.addEventListener('click', async () => {
+      const input = document.getElementById('input-nickname');
+      const value = (input.value || '').trim();
+      if (!value) {
+        setInfoStatus('全名不能为空', 'error');
+        return;
+      }
+      if (value === (state.account.nickname || state.account.username)) {
+        setInfoStatus('全名未变化', 'error');
+        return;
+      }
+      btnNick.disabled = true;
+      try {
+        const res = await window.electronAPI.config.updateUser(state.account.userId, { nickname: value });
+        if (res && res.username === value) {
+          state.account.nickname = value;
+          state.account.username = value;
+          renderAccountInfo();
+          setInfoStatus('已保存，并同步到系统账户', 'success');
+        } else {
+          setInfoStatus('保存失败，请重试', 'error');
+        }
+      } catch (err) {
+        console.error('[Settings] 修改全名失败:', err);
+        setInfoStatus(`保存失败：${err.message || '未知错误'}`, 'error');
+      } finally {
+        btnNick.disabled = false;
+      }
+    });
+  }
+
+  // 更换头像
+  const btnAvatar = document.getElementById('btn-change-avatar');
+  if (btnAvatar) {
+    btnAvatar.addEventListener('click', async () => {
+      try {
+        const filePath = await window.electronAPI.dialog.selectImage();
+        if (!filePath) return;
+        const res = await window.electronAPI.config.updateUser(state.account.userId, { photo: filePath });
+        if (res) {
+          state.account.avatar = filePath;
+          renderAccountInfo();
+          setInfoStatus('头像已更新', 'success');
+        } else {
+          setInfoStatus('头像更新失败', 'error');
+        }
+      } catch (err) {
+        console.error('[Settings] 更换头像失败:', err);
+        setInfoStatus(`更换头像失败：${err.message || '未知错误'}`, 'error');
+      }
+    });
+  }
+
+  // 清除头像
+  const btnClearAvatar = document.getElementById('btn-clear-avatar');
+  if (btnClearAvatar) {
+    btnClearAvatar.addEventListener('click', async () => {
+      if (!state.account.avatar) return;
+      try {
+        const res = await window.electronAPI.config.updateUser(state.account.userId, { photo: null });
+        if (res) {
+          state.account.avatar = null;
+          renderAccountInfo();
+          setInfoStatus('头像已清除', 'success');
+        } else {
+          setInfoStatus('头像清除失败', 'error');
+        }
+      } catch (err) {
+        console.error('[Settings] 清除头像失败:', err);
+        setInfoStatus(`清除头像失败：${err.message || '未知错误'}`, 'error');
+      }
+    });
+  }
+}
+
+/* ============================================================
    窗口控制
    ============================================================ */
 function setupWindowControls() {
@@ -493,6 +662,9 @@ function init() {
     }
   });
 
+  // 账户页：“你的信息”展开与修改
+  bindAccountPageEvents();
+
   // 主进程下发主题与账户信息
   window.electronAPI.settings.onTheme((data) => {
     if (data.theme) state.theme = data.theme;
@@ -504,35 +676,7 @@ function init() {
     if (data.deviceName) state.deviceName = data.deviceName;
     if (data.account) {
       state.account = { ...state.account, ...data.account };
-      const nameEl = document.getElementById('account-name');
-      const subEl = document.getElementById('account-sub');
-      if (state.account.username) nameEl.textContent = state.account.username;
-      subEl.textContent = state.account.email || state.account.roleLabel || '本地账户';
-      const avatarBox = document.getElementById('account-avatar');
-      if (state.account.avatar) {
-        avatarBox.innerHTML = `<img src="${state.account.avatar}" alt="">`;
-      }
-
-      // 账户主页：名称 / 角色徽章 / 头像
-      const heroName = document.getElementById('account-hero-name');
-      const heroRole = document.getElementById('account-hero-role');
-      if (heroName && state.account.username) {
-        heroName.textContent = state.account.username;
-      }
-      if (heroRole && state.account.roleLabel) {
-        heroRole.textContent = state.account.roleLabel;
-      }
-      const heroAvatar = document.getElementById('account-hero-avatar');
-      if (heroAvatar && state.account.avatar) {
-        heroAvatar.innerHTML = `<img src="${state.account.avatar}" alt="">`;
-      }
-
-      // “其他账户”仅对管理员级账户（root/sudo）开放
-      const otherAccountsCard = document.getElementById('card-other-accounts');
-      if (otherAccountsCard) {
-        const privileged = state.account.permi === 'root' || state.account.permi === 'sudo';
-        otherAccountsCard.classList.toggle('hidden', !privileged);
-      }
+      renderAccountInfo();
     }
     applyTheme();
     loadDeviceInfo();

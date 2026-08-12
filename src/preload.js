@@ -209,7 +209,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('startmenu:refresh', () => callback());
     },
     /** 通知主进程：已写入桌面快捷方式（由主进程转发给桌面刷新） */
-    notifyDesktopAdded: () => ipcRenderer.send('startmenu:desktop-added')
+    notifyDesktopAdded: () => ipcRenderer.send('startmenu:desktop-added'),
+    /** 通知主进程：开始菜单内部确认弹窗的开关状态（弹窗打开时禁止失焦/按钮自动隐藏） */
+    setModalOpen: (open) => ipcRenderer.send('startmenu:modal-open', !!open)
   },
 
   // 日历浮层窗口 API

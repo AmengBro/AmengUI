@@ -108,39 +108,55 @@ body {
 
 /* 应用区域 */
 .start-menu-apps {
+  position: relative;
   flex: 1;
   padding: 12px;
   overflow-y: auto;
   min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) rgba(255, 255, 255, 0.05);
 }
 
-.start-menu-apps::-webkit-scrollbar {
-  width: 6px;
+.start-menu-apps::-webkit-scrollbar,
+.start-menu-folder-scroll::-webkit-scrollbar {
+  width: 8px;
 }
 
-.start-menu-apps::-webkit-scrollbar-track {
+.start-menu-apps::-webkit-scrollbar-track,
+.start-menu-folder-scroll::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
 }
 
-.start-menu-apps::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
+.start-menu-apps::-webkit-scrollbar-thumb,
+.start-menu-folder-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  min-height: 40px;
 }
 
-.start-menu-apps::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+.start-menu-apps::-webkit-scrollbar-thumb:hover,
+.start-menu-folder-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
-body.theme-bright .start-menu-apps::-webkit-scrollbar-track {
+body.theme-bright .start-menu-apps::-webkit-scrollbar-track,
+body.theme-bright .start-menu-folder-scroll::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.05);
 }
 
-body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb,
+body.theme-bright .start-menu-folder-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25);
 }
 
-body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
+body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb:hover,
+body.theme-bright .start-menu-folder-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+body.theme-bright .start-menu-apps {
+  scrollbar-color: rgba(0, 0, 0, 0.25) rgba(0, 0, 0, 0.05);
 }
 
 .start-menu-section-title {
@@ -194,6 +210,108 @@ body.theme-bright .start-menu-apps::-webkit-scrollbar-thumb:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 多 App 软件包文件夹条目 */
+.start-menu-folder-item {
+  position: relative;
+}
+
+/* 右下角展开角标（向下箭头） */
+.folder-expand-badge {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  transition: background 0.15s;
+}
+
+.folder-expand-badge:hover {
+  background: var(--accent-color);
+}
+
+.folder-expand-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* 多 App 软件包子页面：完全覆盖应用列表，颜色与主列表区分（深色主题下稍亮） */
+.start-menu-folder-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(46, 46, 46, 0.98);
+  border-radius: 10px;
+  z-index: 20;
+}
+
+.start-menu-folder-view.hidden {
+  display: none;
+}
+
+.folder-view-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.folder-view-back {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.folder-view-back:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.folder-view-back svg {
+  width: 18px;
+  height: 18px;
+}
+
+.folder-view-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.start-menu-folder-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) rgba(255, 255, 255, 0.05);
 }
 
 /* 电源按钮区域 */
@@ -447,6 +565,43 @@ body.theme-bright .start-menu-app-item.selected {
 
 body.theme-bright .start-menu-app-name {
   color: #333;
+}
+
+body.theme-bright .folder-expand-badge {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(0, 0, 0, 0.25);
+  color: #333;
+}
+
+body.theme-bright .folder-expand-badge:hover {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+/* 亮色主题下子页面相对主列表稍深，用于区分层级 */
+body.theme-bright .start-menu-folder-view {
+  background: rgba(241, 241, 241, 0.99);
+}
+
+body.theme-bright .folder-view-header {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .folder-view-back {
+  background: rgba(0, 0, 0, 0.08);
+  color: #333;
+}
+
+body.theme-bright .folder-view-back:hover {
+  background: rgba(0, 0, 0, 0.16);
+}
+
+body.theme-bright .folder-view-title {
+  color: #333;
+}
+
+body.theme-bright .start-menu-folder-scroll {
+  scrollbar-color: rgba(0, 0, 0, 0.25) rgba(0, 0, 0, 0.05);
 }
 
 body.theme-bright .start-menu-power {

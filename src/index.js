@@ -100,13 +100,14 @@ if ($result) {
     const command = `${powershellExe} -ExecutionPolicy Bypass -File "${scriptPath}" -hwnd ${hwnd}`;
     
     const { stdout, stderr } = await execAsync(command);
-    
-    await fs.unlink(scriptPath);
   } catch (error) {
     console.error('PowerShell execution failed:', error.message);
     console.error('Error code:', error.code);
     if (error.stdout) console.error('Partial stdout:', error.stdout);
     if (error.stderr) console.error('Partial stderr:', error.stderr);
+  } finally {
+    // 无论成败都清理临时脚本，避免长期运行积累大量 .ps1
+    await fs.unlink(scriptPath).catch(() => {});
   }
 }
 
@@ -139,6 +140,7 @@ if (require('electron-squirrel-startup')) {
 // 主窗口引用
 let mainWindow = null;
 let dashboardWindow = null;
+let dashboardBottomPushBusy = false;
 let controlCenterWindow = null;
 let startMenuWindow = null;
 let calendarWindow = null;
@@ -519,15 +521,38 @@ ipcMain.handle('window:openDashboard', async (_, userId) => {
     
     setInterval(() => {
       if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-        setWindowToBottom(dashboardWindow);
+        pushDashboardToBottom();
       }
     }, 2000);
+  });
+
+  // 激活（点击桌面/浮层关闭后焦点回落）会把桌面抬到所有普通窗口之上，
+  // 聚焦后延迟置底，保证桌面始终位于已启动应用之下
+  dashboardWindow.on('focus', () => {
+    setTimeout(() => {
+      if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+        pushDashboardToBottom();
+      }
+    }, 200);
   });
   
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();
   }
 });
+
+/**
+ * 桌面窗口置底（带防重入锁：聚焦推送与 2 秒轮询可能叠加，避免 PowerShell 进程堆积）
+ */
+async function pushDashboardToBottom() {
+  if (dashboardBottomPushBusy) return;
+  dashboardBottomPushBusy = true;
+  try {
+    await setWindowToBottom(dashboardWindow);
+  } finally {
+    dashboardBottomPushBusy = false;
+  }
+}
 
 ipcMain.handle('window:logout', async () => {
   currentLoggedInUser = null;
@@ -610,7 +635,9 @@ async function resolveAccount() {
       const roleLabel = (user.permi === 'root' || user.permi === 'sudo') ? '管理员' : '用户';
       account = {
         userId: user.userid,
-        username: user.username || '用户',
+        username: user.username || '用户',       // 昵称（兼容旧调用方）
+        loginName: user.loginName || user.username || '',
+        nickname: user.username || '用户',
         email: user.email || '',
         roleLabel,
         avatar: user.photo || null,
@@ -662,13 +689,16 @@ function broadcastCalendarState(open) {
 
 // ---- 开始菜单窗口 ----
 let startMenuHideTimer = null;
+let startMenuModalOpen = false; // 开始菜单内部确认弹窗（自定义悬浮窗）是否打开
 
 function positionStartMenuWindow(isFloating) {
   if (!startMenuWindow || startMenuWindow.isDestroyed()) return;
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  const W = 400;
-  const H = 500;
   const taskbarTop = getTaskbarTop(isFloating);
+  // 高度自适应屏幕：应用列表在窗口内部滚动，避免开始菜单过高超出屏幕
+  const W = 400;
+  const H = Math.min(500, Math.max(320, height - taskbarTop - 16));
+  startMenuWindow.setSize(W, H);
   startMenuWindow.setPosition(8, Math.max(0, height - H - taskbarTop - 8));
 }
 
@@ -702,11 +732,16 @@ function showStartMenuWindow(opts = {}) {
     startMenuWindow.loadFile(path.join(__dirname, 'start-menu.html'));
 
     startMenuWindow.webContents.on('did-finish-load', () => {
+      // 页面重新加载后弹窗必然关闭，重置状态
+      startMenuModalOpen = false;
       pushStartMenuTheme();
     });
     startMenuWindow.on('blur', () => {
       // 延迟隐藏：避免点击任务栏开始按钮时 blur 先触发导致“关不掉”
       clearTimeout(startMenuHideTimer);
+      startMenuHideTimer = null;
+      // 确认弹窗（自定义悬浮窗）打开时不关闭开始菜单
+      if (startMenuModalOpen) return;
       startMenuHideTimer = setTimeout(() => {
         startMenuHideTimer = null;
         hideStartMenuWindow();
@@ -714,6 +749,7 @@ function showStartMenuWindow(opts = {}) {
     });
     startMenuWindow.on('closed', () => {
       startMenuWindow = null;
+      startMenuModalOpen = false;
     });
   }
 
@@ -743,8 +779,12 @@ ipcMain.handle('startmenu:toggle', async (event, opts = {}) => {
   clearTimeout(startMenuHideTimer);
   startMenuHideTimer = null;
   if (startMenuWindow && !startMenuWindow.isDestroyed() && startMenuWindow.isVisible()) {
-    hideStartMenuWindow();
-    return { open: false };
+    // 确认弹窗打开时不允许通过任务栏按钮关闭开始菜单
+    if (!startMenuModalOpen) {
+      hideStartMenuWindow();
+      return { open: false };
+    }
+    return { open: true };
   }
   showStartMenuWindow(opts);
   return { open: true };
@@ -752,6 +792,15 @@ ipcMain.handle('startmenu:toggle', async (event, opts = {}) => {
 
 ipcMain.on('startmenu:hide', () => {
   hideStartMenuWindow();
+});
+
+// 开始菜单内部确认弹窗状态：弹窗打开时跳过失焦自动隐藏与任务栏按钮关闭
+ipcMain.on('startmenu:modal-open', (event, open) => {
+  startMenuModalOpen = !!open;
+  if (startMenuModalOpen) {
+    clearTimeout(startMenuHideTimer);
+    startMenuHideTimer = null;
+  }
 });
 
 // 开始菜单“发送到桌面”后通知桌面窗口刷新
@@ -861,9 +910,11 @@ function hideOverlayWindows() {
 // 设置窗口
 let settingsWindow = null;
 
-ipcMain.handle('settings:show', async (event, settingsData = {}) => {
-  console.log('[Settings IPC] settings:show received:', JSON.stringify(settingsData));
-
+/**
+ * 打开设置窗口（任务栏右键“设置”入口与“设置”默认程序共用）
+ */
+async function openSettingsWindow(settingsData = {}) {
+  console.log('[Settings] openSettingsWindow:', JSON.stringify(settingsData));
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.focus();
     return { success: true };
@@ -929,6 +980,10 @@ ipcMain.handle('settings:show', async (event, settingsData = {}) => {
   });
 
   return { success: true };
+}
+
+ipcMain.handle('settings:show', async (event, settingsData = {}) => {
+  return await openSettingsWindow(settingsData);
 });
 
 // 设置窗口控制（最小化 / 最大化 / 关闭）
@@ -1321,6 +1376,16 @@ ipcMain.handle('app:launch', async (_, appName) => {
     const appData = await convertAppDataPaths(JSON.parse(appDataRaw));
     appData.exePath = await resolveAmsysIfEmbedded(appData.exePath);
     console.log('App config loaded:', appData);
+
+    // 内置应用（无外部 exe，走程序内窗口）：如设置（internal:settings）
+    if (typeof appData.exePath === 'string' && appData.exePath.startsWith('internal:')) {
+      const internalName = appData.exePath.slice('internal:'.length);
+      if (internalName === 'settings') {
+        await openSettingsWindow({});
+        return { success: true, appName: appData.name || '设置' };
+      }
+      throw new Error(`Unsupported internal app: ${internalName}`);
+    }
     
     if (!appData.exePath) {
       throw new Error('No exePath specified in app config');

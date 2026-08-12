@@ -50,6 +50,22 @@
       <div class="start-menu-app-list" id="start-menu-app-list">
         <!-- 动态填充 -->
       </div>
+      <!-- 多 App 软件包子页面（完全覆盖应用列表） -->
+      <div class="start-menu-folder-view hidden" id="start-menu-folder-view">
+        <div class="folder-view-header">
+          <button class="folder-view-back" id="folder-view-back" title="返回">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+          </button>
+          <span class="folder-view-title" id="start-menu-folder-title"></span>
+        </div>
+        <div class="start-menu-folder-scroll">
+          <div class="start-menu-app-list" id="start-menu-folder-app-list">
+            <!-- 动态填充：主启动器 + 子 App -->
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 分隔线 -->

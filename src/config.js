@@ -568,7 +568,7 @@ async function getUsers() {
       const cfg = JSON.parse(await fs.readFile(getUserConfigPath(r.userid), 'utf8'));
       photo = (cfg.login && cfg.login.photo) || null;
     } catch {}
-    users.push({ userid: r.userid, username: r.username, photo, permi: r.permi });
+    users.push({ userid: r.userid, username: r.username, photo, permi: r.permi, loginName: r.loginName });
   }
   return users;
 }
@@ -695,7 +695,8 @@ async function addUser(username, password = '', photo = null, permi = 'user') {
 /**
  * 更新用户信息（直接写 /etc/passwd 与 /etc/shadow）
  * @param {number} userId - 用户ID（UID）
- * @param {Object} updates - 要更新的字段（username/permi/password/photo）
+ * @param {Object} updates - 要更新的字段（username/permi/password/photo/nickname）
+ *   nickname：仅改昵称（passwd 字段5/全名），登录名保持不变，home 目录跟随昵称重命名
  * @returns {Promise<Object|null>} 更新后的用户或null
  */
 async function updateUser(userId, updates) {
@@ -724,6 +725,22 @@ async function updateUser(userId, updates) {
         await fs.access(oldHome);
         await fs.rename(oldHome, newHome);
       } catch {}
+    }
+  }
+  // 仅改昵称（passwd 字段5 / 全名）：登录名与 home 目录跟随昵称，但不改字段1
+  if (safeUpdates.nickname !== undefined && String(safeUpdates.nickname).trim() !== rec.username) {
+    const newNick = String(safeUpdates.nickname).trim();
+    if (newNick) {
+      const oldNick = nick;
+      nick = newNick;
+      if (userId !== 0 && newNick !== oldNick) {
+        const oldHome = path.join(AMSYS_ROOT, 'home', oldNick);
+        const newHome = path.join(AMSYS_ROOT, 'home', newNick);
+        try {
+          await fs.access(oldHome);
+          await fs.rename(oldHome, newHome);
+        } catch {}
+      }
     }
   }
   if (safeUpdates.permi !== undefined) {

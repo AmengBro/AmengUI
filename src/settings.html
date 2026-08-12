@@ -268,7 +268,7 @@
         <div class="section-label">账户设置</div>
 
         <div class="settings-card">
-          <div class="card-row clickable" id="row-your-info" role="button" tabindex="0" title="功能开发中">
+          <div class="card-row clickable" id="row-your-info" role="button" tabindex="0" aria-expanded="false">
             <span class="card-icon">
               <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
                 <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
@@ -278,11 +278,44 @@
               <span class="card-title">你的信息</span>
               <span class="card-desc">个人资料、头像</span>
             </span>
-            <span class="card-chevron" aria-hidden="true">
+            <span class="card-chevron expander-chevron" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
                 <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
               </svg>
             </span>
+          </div>
+          <div class="expander-content" id="info-expander">
+            <div class="expander-inner">
+              <div class="info-block">
+                <div class="info-title">个人信息</div>
+                <div class="info-line">
+                  <span class="info-label">用户名</span>
+                  <span class="info-value" id="info-login-name">-</span>
+                </div>
+                <div class="info-line">
+                  <span class="info-label">用户编号</span>
+                  <span class="info-value" id="info-user-id">-</span>
+                </div>
+                <div class="info-line">
+                  <span class="info-label">你的权限</span>
+                  <span class="info-value" id="info-permission">-</span>
+                </div>
+                <div class="info-divider"></div>
+                <div class="info-edit-row">
+                  <label class="info-label" for="input-nickname">全名</label>
+                  <input class="win-textbox info-input" id="input-nickname" type="text" maxlength="64" autocomplete="off" spellcheck="false">
+                  <button class="win-btn" id="btn-change-nickname" type="button">更改</button>
+                </div>
+                <div class="info-edit-row">
+                  <span class="info-label">更改我的头像</span>
+                  <div class="info-actions">
+                    <button class="win-btn" id="btn-change-avatar" type="button">更改</button>
+                    <button class="win-btn SubtleButtonStyle" id="btn-clear-avatar" type="button">清除头像</button>
+                  </div>
+                </div>
+                <div class="info-status hidden" id="info-status"></div>
+              </div>
+            </div>
           </div>
         </div>
 

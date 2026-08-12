@@ -552,6 +552,109 @@ body {
   border: 1px solid var(--card-stroke);
 }
 
+/* “你的信息”展开器 */
+.expander-chevron {
+  transition: transform var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.card-row.expanded .expander-chevron {
+  transform: rotate(180deg);
+}
+
+.expander-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--normal-duration) var(--fast-out-slow-in);
+}
+
+.expander-content.open {
+  grid-template-rows: 1fr;
+}
+
+.expander-content > .expander-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.info-block {
+  padding: 0 16px 16px;
+}
+
+.info-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 4px 0 8px;
+}
+
+.info-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.info-label {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.info-value {
+  color: var(--text-primary);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.info-divider {
+  height: 1px;
+  background: var(--stroke-divider);
+  margin: 10px 0;
+}
+
+.info-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.info-edit-row .info-label {
+  flex: 0 0 96px;
+}
+
+/* 行内按钮组：靠右对齐 */
+.info-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.info-status {
+  font-size: 12px;
+  line-height: 16px;
+  margin-top: 8px;
+}
+
+.info-status.success {
+  color: var(--system-success);
+}
+
+.info-status.error {
+  color: var(--system-critical);
+}
+
 /* 推荐设置卡片 */
 .reco-card {
   background: var(--card-bg);

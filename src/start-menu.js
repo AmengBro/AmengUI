@@ -13,6 +13,8 @@ const OPEN_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>';
 const PROPERTIES_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 14V6c0-1.1-.9-2-2-2H3c-1.1 0-2 .9-2 2v15c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5H3V6h14v8h2zM12 2H4v2h8V2zm9 9.41L19.59 10 17 12.59 14.41 10 13 11.41 15.59 14 13 16.59 14.41 18 17 15.41 19.59 18 21 16.59 18.41 14 21 11.41z"/></svg>';
+const CHEVRON_DOWN_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>';
 
 // 模态确认回调
 let confirmCallback = null;
@@ -117,12 +119,14 @@ async function loadUserInfo(account) {
 
 /**
  * 加载开始菜单应用列表（/usr/share/applications 全部应用 + 桌面快捷方式补全）
+ * 同一包名下存在多个 .app（com.包名 主启动器 + tool./word. 等子 App）时折叠为文件夹。
  */
 async function loadStartMenuApps() {
   if (isStartMenuLoading) return;
   isStartMenuLoading = true;
 
   try {
+    closeFolderView();
     const userId = await getCurrentUserId();
     const [desktopData, allAppsRes] = await Promise.all([
       window.electronAPI.config.getUserDesktop(userId),
@@ -158,62 +162,205 @@ async function loadStartMenuApps() {
       return;
     }
 
+    // 按“前缀.包名”分组：com 前缀为主启动器，tool/word 等为子 App
+    appGroups = new Map();
     for (const app of apps) {
-      const appItem = document.createElement('div');
-      appItem.className = 'start-menu-app-item';
-      appItem.dataset.appName = app.start;
+      const { prefix, packageName } = parseAppIdentity(app.start);
+      const entry = { ...app, prefix, packageName };
+      let group = appGroups.get(packageName);
+      if (!group) {
+        group = { main: null, subs: [] };
+        appGroups.set(packageName, group);
+      }
+      if (prefix === 'com' && !group.main) {
+        group.main = entry;
+      } else {
+        group.subs.push(entry);
+      }
+    }
 
-      let iconPath = app.icon;
-
-      if (!iconPath || iconPath.trim() === '' || !isValidImagePath(iconPath)) {
-        const appInfo = await getAppInfo(app.start);
-        if (appInfo && appInfo.icon && isValidImagePath(appInfo.icon)) {
-          iconPath = appInfo.icon;
+    // 渲染顺序：文件夹占据其 com 主启动器的位置；单应用正常显示；
+    // 只有子 App 没有 com 主启动器的包，子项逐个显示
+    const renderedPackages = new Set();
+    for (const app of apps) {
+      const { packageName } = parseAppIdentity(app.start);
+      if (renderedPackages.has(packageName)) continue;
+      renderedPackages.add(packageName);
+      const group = appGroups.get(packageName);
+      if (group.main && group.subs.length > 0) {
+        appList.appendChild(await createFolderItem(group));
+      } else if (group.main) {
+        appList.appendChild(await createAppItem(group.main));
+      } else {
+        for (const sub of group.subs) {
+          appList.appendChild(await createAppItem(sub));
         }
       }
-
-      const iconElement = document.createElement('img');
-      iconElement.className = 'start-menu-app-icon';
-
-      const finalIconPath = isValidImagePath(iconPath) ? iconPath : '../difproico.png';
-      iconElement.src = finalIconPath;
-
-      iconElement.onerror = () => {
-        iconElement.src = '../difproico.png';
-      };
-
-      const nameElement = document.createElement('span');
-      nameElement.className = 'start-menu-app-name';
-      nameElement.textContent = app.name;
-
-      appItem.appendChild(iconElement);
-      appItem.appendChild(nameElement);
-      appList.appendChild(appItem);
-
-      appItem.addEventListener('click', async () => {
-        console.log('Launching app from start menu:', app.start);
-        hideMenu();
-        const result = await window.electronAPI.app.launch(app.start);
-        if (!result.success) {
-          alert(`启动失败: ${result.error}`);
-        }
-      });
-
-      // 右键：发送到桌面
-      appItem.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        showStartMenuContextMenu(e.clientX, e.clientY, {
-          start: app.start,
-          name: app.name,
-          icon: app.icon,
-        });
-      });
     }
   } catch (error) {
     console.error('Failed to load start menu apps:', error);
   } finally {
     isStartMenuLoading = false;
+  }
+}
+
+/**
+ * 解析 .app 命名：com.app_name / tool.app_name / word.app_name
+ * @returns {{ prefix: string, packageName: string }}
+ */
+function parseAppIdentity(appName) {
+  const parts = String(appName || '').split('.');
+  if (parts.length < 2) {
+    return { prefix: '', packageName: String(appName || '') };
+  }
+  return { prefix: parts[0], packageName: parts.slice(1).join('.') };
+}
+
+// 包名 -> { main, subs }（loadStartMenuApps 时构建，供子页面/右键展开使用）
+let appGroups = new Map();
+// 当前打开的子页面包名（null 表示在主页）
+let currentFolder = null;
+
+/**
+ * 启动一个应用并隐藏开始菜单
+ */
+function launchEntry(entry) {
+  console.log('Launching app from start menu:', entry.start);
+  hideMenu();
+  window.electronAPI.app.launch(entry.start).then((r) => {
+    if (r && !r.success) alert(`启动失败: ${r.error}`);
+  });
+}
+
+/**
+ * 解析应用图标：无效时通过 app:getInfo 提取，仍无效回退默认图标
+ */
+async function resolveAppIconPath(entry) {
+  let iconPath = entry.icon;
+  if (!iconPath || iconPath.trim() === '' || !isValidImagePath(iconPath)) {
+    const appInfo = await getAppInfo(entry.start);
+    if (appInfo && appInfo.icon && isValidImagePath(appInfo.icon)) {
+      iconPath = appInfo.icon;
+    }
+  }
+  return isValidImagePath(iconPath) ? iconPath : '../difproico.png';
+}
+
+/**
+ * 创建普通应用条目（主列表与子页面共用）
+ */
+async function createAppItem(entry) {
+  const appItem = document.createElement('div');
+  appItem.className = 'start-menu-app-item';
+  appItem.dataset.appName = entry.start;
+
+  const iconPath = await resolveAppIconPath(entry);
+  const iconElement = document.createElement('img');
+  iconElement.className = 'start-menu-app-icon';
+  iconElement.src = iconPath;
+  iconElement.onerror = () => {
+    iconElement.src = '../difproico.png';
+  };
+
+  const nameElement = document.createElement('span');
+  nameElement.className = 'start-menu-app-name';
+  nameElement.textContent = entry.name;
+
+  appItem.appendChild(iconElement);
+  appItem.appendChild(nameElement);
+
+  appItem.addEventListener('click', () => launchEntry(entry));
+  appItem.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showStartMenuContextMenu(e.clientX, e.clientY, entry);
+  });
+  return appItem;
+}
+
+/**
+ * 创建多 App 软件包文件夹条目：封面为主启动器图标 + 右下角展开角标
+ */
+async function createFolderItem(group) {
+  const main = group.main;
+  const folderItem = document.createElement('div');
+  folderItem.className = 'start-menu-app-item start-menu-folder-item';
+  folderItem.dataset.appName = main.start;
+  folderItem.dataset.packageName = main.packageName;
+
+  const iconPath = await resolveAppIconPath(main);
+  const iconElement = document.createElement('img');
+  iconElement.className = 'start-menu-app-icon';
+  iconElement.src = iconPath;
+  iconElement.onerror = () => {
+    iconElement.src = '../difproico.png';
+  };
+
+  const nameElement = document.createElement('span');
+  nameElement.className = 'start-menu-app-name';
+  nameElement.textContent = main.name;
+
+  // 右下角展开角标：点击打开子页面
+  const badge = document.createElement('span');
+  badge.className = 'folder-expand-badge';
+  badge.title = '展开';
+  badge.innerHTML = CHEVRON_DOWN_ICON;
+  badge.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openFolderView(main.packageName);
+  });
+
+  folderItem.appendChild(iconElement);
+  folderItem.appendChild(nameElement);
+  folderItem.appendChild(badge);
+
+  // 点击文件夹主体：直接启动 com 主启动器
+  folderItem.addEventListener('click', () => launchEntry(main));
+  folderItem.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showStartMenuContextMenu(e.clientX, e.clientY, main, { folder: true });
+  });
+  return folderItem;
+}
+
+/**
+ * 打开多 App 软件包子页面：完全覆盖应用列表
+ */
+function openFolderView(packageName) {
+  const group = appGroups.get(packageName);
+  if (!group || !group.main) return;
+  currentFolder = packageName;
+
+  const view = document.getElementById('start-menu-folder-view');
+  const list = document.getElementById('start-menu-folder-app-list');
+  const title = document.getElementById('start-menu-folder-title');
+  if (!view || !list || !title) return;
+
+  title.textContent = group.main.name;
+  list.innerHTML = '';
+  const entries = [group.main, ...group.subs];
+  (async () => {
+    for (const entry of entries) {
+      list.appendChild(await createAppItem(entry));
+    }
+  })();
+
+  // 主列表滚回顶部，保证覆盖层与列表区域对齐
+  const appsContainer = document.querySelector('.start-menu-apps');
+  if (appsContainer) appsContainer.scrollTop = 0;
+  view.classList.remove('hidden');
+}
+
+/**
+ * 关闭子页面，回到主列表
+ */
+function closeFolderView() {
+  currentFolder = null;
+  const view = document.getElementById('start-menu-folder-view');
+  if (view && !view.classList.contains('hidden')) {
+    view.classList.add('hidden');
   }
 }
 
@@ -225,7 +372,19 @@ function closeContextMenu() {
   if (menu) menu.remove();
 }
 
-function showStartMenuContextMenu(x, y, entry) {
+/**
+ * 钳制右键菜单位置到窗口视口内，避免超出开始菜单边缘被裁掉
+ */
+function clampStartMenuContextMenu(menu, x, y) {
+  const rect = menu.getBoundingClientRect();
+  const margin = 8;
+  const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+  const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+  menu.style.left = `${Math.min(Math.max(x, margin), maxLeft)}px`;
+  menu.style.top = `${Math.min(Math.max(y, margin), maxTop)}px`;
+}
+
+function showStartMenuContextMenu(x, y, entry, opts = {}) {
   closeContextMenu();
   const menu = document.createElement('div');
   menu.className = 'context-menu';
@@ -237,18 +396,23 @@ function showStartMenuContextMenu(x, y, entry) {
     {
       label: '打开',
       icon: OPEN_ICON,
-      action: () => {
-        hideMenu();
-        window.electronAPI.app.launch(entry.start).then((r) => {
-          if (r && !r.success) alert(`启动失败: ${r.error}`);
-        });
-      },
+      action: () => launchEntry(entry),
     },
+  ];
+  // 文件夹额外提供“展开”入口（等同于点击右下角角标）
+  if (opts.folder) {
+    items.push({
+      label: '展开',
+      icon: CHEVRON_DOWN_ICON,
+      action: () => openFolderView(entry.packageName),
+    });
+  }
+  items.push(
     null,
     { label: '发送到桌面', icon: SEND_TO_DESKTOP_ICON, action: () => sendToDesktop(entry) },
     null,
-    { label: '属性', icon: PROPERTIES_ICON, action: () => showStartMenuProperties(entry) },
-  ];
+    { label: '属性', icon: PROPERTIES_ICON, action: () => showStartMenuProperties(entry) }
+  );
 
   items.forEach((it) => {
     if (it === null) {
@@ -275,6 +439,8 @@ function showStartMenuContextMenu(x, y, entry) {
     menu.appendChild(item);
   });
   document.body.appendChild(menu);
+  // 菜单位置钳制在窗口内，防止超出开始菜单边缘
+  clampStartMenuContextMenu(menu, x, y);
   document.addEventListener('click', closeContextMenu);
   document.addEventListener('contextmenu', closeContextMenu);
 }
@@ -337,6 +503,12 @@ function getNextDesktopPosition(desktopApps) {
 /**
  * 模态确认弹窗
  */
+function notifyModalState(open) {
+  if (window.electronAPI && window.electronAPI.startMenu && window.electronAPI.startMenu.setModalOpen) {
+    window.electronAPI.startMenu.setModalOpen(open);
+  }
+}
+
 function showConfirmModal(message, callback, showCancel = true) {
   confirmCallback = callback;
   const modalOverlay = document.getElementById('modal-overlay');
@@ -347,6 +519,8 @@ function showConfirmModal(message, callback, showCancel = true) {
     cancelBtn.classList.toggle('hidden', !showCancel);
   }
   modalOverlay.classList.remove('hidden');
+  // 弹窗打开期间主进程跳过失焦自动隐藏，开始菜单保持可见
+  notifyModalState(true);
 }
 
 function bindModalEvents() {
@@ -358,12 +532,14 @@ function bindModalEvents() {
     cancelBtn.addEventListener('click', () => {
       modalOverlay.classList.add('hidden');
       confirmCallback = null;
+      notifyModalState(false);
     });
   }
 
   if (confirmBtn) {
     confirmBtn.addEventListener('click', () => {
       modalOverlay.classList.add('hidden');
+      notifyModalState(false);
       if (confirmCallback) {
         confirmCallback();
         confirmCallback = null;
@@ -376,6 +552,7 @@ function bindModalEvents() {
       if (e.target === modalOverlay) {
         modalOverlay.classList.add('hidden');
         confirmCallback = null;
+        notifyModalState(false);
       }
     });
   }
@@ -512,11 +689,23 @@ function init() {
   bindUserMenu();
   bindModalEvents();
 
+  // 子页面返回按钮
+  const backBtn = document.getElementById('folder-view-back');
+  if (backBtn) {
+    backBtn.addEventListener('click', closeFolderView);
+  }
+
   // ESC 关闭窗口（确认弹窗打开时不关闭）
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const overlay = document.getElementById('modal-overlay');
       if (overlay && !overlay.classList.contains('hidden')) return;
+      // 子页面打开时先返回主列表
+      const folderView = document.getElementById('start-menu-folder-view');
+      if (folderView && !folderView.classList.contains('hidden')) {
+        closeFolderView();
+        return;
+      }
       hideMenu();
     }
   });

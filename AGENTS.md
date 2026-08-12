@@ -839,6 +839,23 @@ netsh interface set interface name="WLAN" admin=enabled
 “其他账户”、三行设置项与 chevron、返回按钮；切换普通用户后名称/徽章更新且“其他账户”
 隐藏；返回主页正常。
 
+**第二轮（账户页长格式与个人资料编辑）**：
+- 展示用户名改为长格式 `Nick(username)`（昵称=passwd 字段5，登录名=字段1）；
+  `resolveAccount()` 新增 `loginName` / `nickname` 字段，`getUsers()` 补充
+  `loginName`（均为增量字段，不破坏旧调用方）
+- “你的信息”卡片改为可展开面板（grid 0fr→1fr 展开动画，chevron 旋转）：
+  - 个人信息区：用户名（登录名）/ 用户编号（UID）/ 你的权限（角色徽章）
+  - 全名输入框 + 【更改】；更改我的头像 + 【更改】；操作结果用内联状态提示
+- 全名修改走 `config.updateUser(userId, { nickname })`：新增 nickname 更新路径，
+  只改 passwd 字段5（全名）与 home 目录（`/home/{昵称}` 跟随重命名），登录名不变；
+  写回 passwd/shadow 后经 `syncUsersFromPasswdShadow()` 重建 users.json 与
+  config.json login 块——保证 2 秒配置监听（`checkConfigChanges`）不会把改动覆盖掉
+- 头像修改走 `config.updateUser(userId, { photo })`（photo 仅存 config.json，
+  passwd/shadow 不变）
+- 实测：config 层真机写入测试（临时用户 add → nickname 改 → passwd/getUsers 断言 →
+  delete 清理）通过：登录名不变、昵称与 home 更新、清理干净；设置页 harness 13 项
+  断言全通过（长格式、展开内容、改名/头像调用与渲染、收起）
+
 ---
 
 **控制中心尺寸/桌面右键/开始菜单右键（第十四轮）**：
@@ -1001,6 +1018,32 @@ netsh interface set interface name="WLAN" admin=enabled
 （如 `娴嬭瘯涓枃鐩綍`）已从 passwd/shadow 白名单清除，对应乱码 home 目录与
 孤儿 config 目录隔离到 amsys root 下的 `.garbage-20260811/`（未删除，可恢复）；
 amys 侧如未修复 home 扫描编码，后续仍可能再生成，建议在 amsys 侧跟进。
+
+### 26. 桌面窗口层级修复：激活会把桌面抬到普通窗口之上
+
+**用户反馈**：
+> 在前台没有打开设置时，主程序桌面没有成功置于底部，反而变成了置顶。
+
+**根因（探针实测）**：
+- 独立 Electron 探针复刻 `setWindowToBottom` 的 PowerShell 调用（SetWindowPos
+  HWND_BOTTOM + SWP_NOACTIVATE）确认：置底本身有效（窗口 Z 序 rel 从 +1 掉到
+  +358），但**窗口被激活（focus()/点击桌面/浮层或设置关闭后焦点回落）时，Windows
+  会把桌面抬到所有普通窗口之上**（rel 变为 -3），且它并非 WS_EX_TOPMOST，只是普通
+  Z 序被抬高
+- 原有每 2 秒轮询置底存在空窗：激活后若轮询延迟/失败，桌面就一直盖住已启动的应用，
+  表现为“置顶”
+
+**修复**：
+- `window:openDashboard` 给 dashboardWindow 增加 `focus` 监听：聚焦后延迟 200ms
+  置底，直接抵消“激活即抬高”机制（设置关闭、浮层隐藏、点击桌面后桌面都会在约 1 秒内
+  回到应用之下）
+- 新增 `pushDashboardToBottom()` 防重入锁：聚焦推送与 2 秒轮询可能叠加，统一串行化，
+  避免 PowerShell 进程堆积
+- 顺带修复 `forceWindowToBottom` 临时脚本泄漏：无论 PowerShell 成败都在 `finally`
+  中清理 `amengui_setbottom_*.ps1`，避免长期运行积累临时文件
+
+**实测**（Z 序探针）：加 focus 置底后，桌面被激活（focus）与设置窗口关闭焦点回落两种
+场景，桌面 Z 序均稳定回到应用之下（rel=+358），且 `topmost=false`（非 WS_EX_TOPMOST）。
 
 ## 三、待解决问题与未来方向
 
