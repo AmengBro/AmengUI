@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [Parameter(Position = 0)] [string]$Op = ''
+  [Parameter(Position = 0)] [string]$Op = '',
+  [Parameter(Position = 1)] [string]$State = ''
 )
 
 # winrt.ps1 — Windows PowerShell 5.1 专用 WinRT 操作辅助脚本
@@ -88,6 +89,32 @@ try {
       $result = [pscustomobject]@{ success = $false; radioEnabled = $null }
     } else {
       $result = [pscustomobject]@{ success = $true; radioEnabled = ($bt.State -eq $stateType::On) }
+    }
+  } elseif ($Op -eq 'wifiPower') {
+    $radios = Get-Radios
+    $wifi = @($radios | Where-Object { ([string]$_.Kind) -eq 'WiFi' })[0]
+    if ($null -eq $wifi) {
+      $result = [pscustomobject]@{ success = $false; enabled = $null; error = 'wlanapi_unavailable' }
+    } else {
+      $enable = ($State -match '^(true|1|yes)$')
+      $target = if ($enable) { $stateType::On } else { $stateType::Off }
+      Set-RadioState $wifi $target
+      $sw = [System.Diagnostics.Stopwatch]::StartNew()
+      $converged = $null
+      while ($sw.Elapsed.TotalSeconds -lt 10) {
+        Start-Sleep -Milliseconds 400
+        $rs = Get-Radios
+        $w2 = @($rs | Where-Object { ([string]$_.Kind) -eq 'WiFi' })[0]
+        if ($null -ne $w2) {
+          $converged = ($w2.State -eq $target)
+          if ($converged) { break }
+        }
+      }
+      if ($converged) {
+        $result = [pscustomobject]@{ success = $true; enabled = $enable }
+      } else {
+        $result = [pscustomobject]@{ success = $false; enabled = $null; error = 'timeout' }
+      }
     }
   } elseif ($Op -eq 'hotspotStatus') {
     $m = Get-HotspotManager

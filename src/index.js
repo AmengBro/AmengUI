@@ -17,6 +17,20 @@ const PWSH_PATH = config.PWSH_PATH;
 const execAsync = promisify(exec);
 const IPC_TIMEOUT = 15000;
 
+/**
+ * 输出管道关闭保护：当程序从控制台启动且控制台被关闭时，console 写 stdout 会抛
+ * EPIPE（broken pipe）。忽略这类错误，避免弹出“主进程 JavaScript 错误”对话框；
+ * 其余未捕获异常移除本监听后恢复 Electron 默认处理。
+ */
+function onMainProcessUncaughtException(err) {
+  if (err && err.code === 'EPIPE' && /broken pipe/i.test(err.message || '')) {
+    return;
+  }
+  process.removeListener('uncaughtException', onMainProcessUncaughtException);
+  throw err;
+}
+process.on('uncaughtException', onMainProcessUncaughtException);
+
 function getScriptsDir() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'scripts');
@@ -378,6 +392,33 @@ ipcMain.handle('config:updateUser', async (_, userid, updates) => {
   return await config.updateUser(userid, updates);
 });
 
+/**
+ * 修改密码：校验当前密码后写回虚拟根 /etc/shadow 的 md5 字段（空密码 = 关闭密码）
+ * @param {{ userId: number, nickname: string, currentPassword: string, newPassword: string, verifyCurrent: boolean }} payload
+ */
+ipcMain.handle('config:changePassword', async (_, payload = {}) => {
+  const { userId, nickname, currentPassword, newPassword, verifyCurrent = true } = payload;
+  try {
+    if (verifyCurrent) {
+      const verified = await config.verifyUser(nickname, currentPassword || '');
+      if (!verified || verified.userid !== userId) {
+        return { success: false, code: 'current_password_wrong' };
+      }
+    }
+    if (typeof newPassword !== 'string') {
+      return { success: false, code: 'invalid_password' };
+    }
+    const updated = await config.updateUser(userId, { password: newPassword });
+    if (!updated) {
+      return { success: false, code: 'update_failed' };
+    }
+    return { success: true };
+  } catch (err) {
+    console.error('[config:changePassword]', err.message);
+    return { success: false, code: 'error', message: err.message };
+  }
+});
+
 ipcMain.handle('config:deleteUser', async (_, userid) => {
   return await config.deleteUser(userid);
 });
@@ -392,6 +433,10 @@ ipcMain.handle('config:setTheme', async (_, theme, userId) => {
 
 ipcMain.handle('config:setAccentColor', async (_, color, userId) => {
   return await config.setAccentColor(color, userId);
+});
+
+ipcMain.handle('config:setTaskbarMode', async (_, mode, userId) => {
+  return await config.setTaskbarMode(mode, userId);
 });
 
 ipcMain.handle('config:setLastLoginUserId', async (_, userId) => {
@@ -486,7 +531,7 @@ ipcMain.handle('fs:readDir', async (_, dirPath) => {
 
 // 窗口操作
 ipcMain.handle('window:openDashboard', async (_, userId) => {
-  if (userId) {
+  if (userId != null) {
     const users = await config.getUsers();
     currentLoggedInUser = users.find(u => u.userid === userId);
   }
@@ -633,11 +678,17 @@ async function resolveAccount() {
     if (user) {
       // 角色徽章：root/sudo 显示管理员，普通用户显示用户
       const roleLabel = (user.permi === 'root' || user.permi === 'sudo') ? '管理员' : '用户';
+      let hasPassword = false;
+      try {
+        const userConfig = await config.getUserConfig(user.userid);
+        hasPassword = !!(userConfig.login && userConfig.login.password);
+      } catch {}
       account = {
         userId: user.userid,
         username: user.username || '用户',       // 昵称（兼容旧调用方）
         loginName: user.loginName || user.username || '',
         nickname: user.username || '用户',
+        hasPassword,
         email: user.email || '',
         roleLabel,
         avatar: user.photo || null,
@@ -648,6 +699,20 @@ async function resolveAccount() {
     console.warn('[Floating] 解析账户信息失败:', err.message);
   }
   return account;
+}
+
+/**
+ * 解析当前用户 ID（统一来源）：设置页与开始菜单都用它，
+ * 避免 currentLoggedInUser 与 lastLoginUserId 不一致导致隐藏状态读写分家
+ */
+async function resolveCurrentUserId() {
+  if (currentLoggedInUser && currentLoggedInUser.userid !== undefined) {
+    return currentLoggedInUser.userid;
+  }
+  const lastUserId = await config.getLastLoginUserId();
+  if (lastUserId) return lastUserId;
+  const users = await config.getUsers();
+  return users && users.length > 0 ? users[0].userid : null;
 }
 
 /**
@@ -810,6 +875,15 @@ ipcMain.on('startmenu:desktop-added', () => {
   }
 });
 
+/**
+ * 通知开始菜单窗口刷新应用列表（隐藏/卸载后即时生效）
+ */
+function notifyStartMenuRefresh() {
+  if (startMenuWindow && !startMenuWindow.isDestroyed() && !startMenuWindow.webContents.isLoading()) {
+    startMenuWindow.webContents.send('startmenu:refresh');
+  }
+}
+
 // ---- 日历窗口 ----
 let calendarHideTimer = null;
 
@@ -954,13 +1028,19 @@ async function openSettingsWindow(settingsData = {}) {
   // 解析账户信息（当前登录用户，未登录时取最近登录用户）
   const account = await resolveAccount();
 
-  const pushTheme = () => {
+  const pushTheme = async () => {
     if (!settingsWindow || settingsWindow.isDestroyed()) return;
+    let loginBackground = null;
+    try {
+      const settings = await config.getSettings(account.userId);
+      loginBackground = settings.loginBackground || null;
+    } catch {}
     settingsWindow.webContents.send('settings:theme', {
       theme,
       accentColor,
       isTaskbarFloating,
       desktopBackground: settingsData.desktopBackground || null,
+      loginBackground,
       deviceName: os.hostname(),
       account,
     });
@@ -1032,6 +1112,85 @@ ipcMain.handle('settings:getDeviceInfo', async () => {
     });
   }
   return deviceInfoPromise;
+});
+
+// ==================== 高级管理：新建用户独立窗口 ====================
+let userFormWindow = null;
+
+ipcMain.handle('usermgr:show-new', async () => {
+  if (userFormWindow && !userFormWindow.isDestroyed()) {
+    userFormWindow.focus();
+    return { success: true };
+  }
+
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const W = 420;
+  const H = 540;
+  userFormWindow = new BrowserWindow({
+    width: W,
+    height: H,
+    x: Math.max(0, Math.floor((width - W) / 2)),
+    y: Math.max(0, Math.floor((height - H) / 2)),
+    frame: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  userFormWindow.loadFile(path.join(__dirname, 'user-form.html'));
+
+  userFormWindow.webContents.on('did-finish-load', async () => {
+    const account = await resolveAccount();
+    const { theme, accentColor } = await resolveUserTheme(account);
+    if (userFormWindow && !userFormWindow.isDestroyed()) {
+      userFormWindow.webContents.send('userform:theme', { theme, accentColor });
+    }
+  });
+
+  userFormWindow.on('closed', () => {
+    userFormWindow = null;
+  });
+
+  return { success: true };
+});
+
+ipcMain.on('usermgr:close', () => {
+  if (userFormWindow && !userFormWindow.isDestroyed()) {
+    userFormWindow.close();
+  }
+});
+
+/**
+ * 新建用户：仅允许 user/sudo 权限（root 不可由界面创建）
+ */
+ipcMain.handle('usermgr:create', async (_, payload = {}) => {
+  const { username, nickname, permi, password } = payload;
+  try {
+    const perm = permi === 'sudo' ? 'sudo' : 'user';
+    const created = await config.addUser(
+      String(username || '').trim(),
+      String(password || ''),
+      null,
+      perm,
+      String(nickname || '').trim() || null
+    );
+    if (!created) {
+      return { success: false, code: 'duplicate' };
+    }
+    // 通知设置窗口刷新高级管理列表
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send('admin:refresh');
+    }
+    return { success: true, user: created };
+  } catch (err) {
+    console.error('[usermgr:create]', err.message);
+    return { success: false, code: 'error', message: err.message };
+  }
 });
 
 // 设置变更事件
@@ -1421,6 +1580,34 @@ ipcMain.handle('app:launch', async (_, appName) => {
 });
 
 // 获取应用信息
+async function extractAppIcon(appData, appName) {
+  let iconPath = appData.icon;
+  if (!iconPath) return iconPath;
+  try {
+    const nativeImage = require('electron').nativeImage;
+    let icon = null;
+    if (/\.(png|jpg|jpeg|gif)$/i.test(iconPath)) {
+      icon = nativeImage.createFromPath(iconPath);
+    } else if (/\.ico$/i.test(iconPath)) {
+      icon = nativeImage.createFromPath(iconPath);
+      if (icon.isEmpty()) {
+        icon = await app.getFileIcon(iconPath, { size: 'large' });
+      }
+    } else {
+      // exe 等程序图标：nativeImage.createFromPath 不支持 exe，必须用 app.getFileIcon
+      icon = await app.getFileIcon(iconPath, { size: 'large' });
+    }
+    if (!icon.isEmpty()) {
+      const tempIconPath = path.join(os.tmpdir(), `${appName}-icon.png`);
+      await fs.writeFile(tempIconPath, icon.toPNG());
+      iconPath = tempIconPath;
+    }
+  } catch (iconError) {
+    console.warn('Failed to extract icon:', iconError.message);
+  }
+  return iconPath;
+}
+
 ipcMain.handle('app:getInfo', async (_, appName) => {
   try {
     const normalizedName = normalizeAppName(appName);
@@ -1493,32 +1680,7 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
     appData = await convertAppDataPaths(appData);
     appData.exePath = await resolveAmsysIfEmbedded(appData.exePath);
     
-    let iconPath = appData.icon;
-    
-    if (iconPath) {
-      try {
-        const nativeImage = require('electron').nativeImage;
-        let icon = null;
-        if (/\.(png|jpg|jpeg|gif)$/i.test(iconPath)) {
-          icon = nativeImage.createFromPath(iconPath);
-        } else if (/\.ico$/i.test(iconPath)) {
-          icon = nativeImage.createFromPath(iconPath);
-          if (icon.isEmpty()) {
-            icon = await app.getFileIcon(iconPath, { size: 'large' });
-          }
-        } else {
-          // exe 等程序图标：nativeImage.createFromPath 不支持 exe，必须用 app.getFileIcon
-          icon = await app.getFileIcon(iconPath, { size: 'large' });
-        }
-        if (!icon.isEmpty()) {
-          const tempIconPath = path.join(os.tmpdir(), `${appName}-icon.png`);
-          await fs.writeFile(tempIconPath, icon.toPNG());
-          iconPath = tempIconPath;
-        }
-      } catch (iconError) {
-        console.warn('Failed to extract icon:', iconError.message);
-      }
-    }
+    const iconPath = await extractAppIcon(appData, appName);
     
     return {
       success: true,
@@ -1537,27 +1699,40 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
   }
 });
 
-// 列出 /usr/share/applications 下所有 .app 文件（开始菜单的完整应用来源）
-ipcMain.handle('apps:listAll', async () => {
+/**
+ * 解析 /usr/share/applications 的 Windows 绝对路径（amsys 转换，失败回退 rootdir）
+ */
+async function getApplicationsDir() {
   try {
-    let appsDir;
-    try {
-      const converter = await getPathConverter(APP_ROOT);
-      const result = await converter.toWindows('/usr/share/applications');
-      if (result.success && result.winPath) {
-        appsDir = result.winPath;
-      } else {
-        throw new Error('path conversion failed');
-      }
-    } catch (converterError) {
-      appsDir = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications');
+    const converter = await getPathConverter(APP_ROOT);
+    const result = await converter.toWindows('/usr/share/applications');
+    if (result.success && result.winPath) {
+      return result.winPath;
     }
+    throw new Error('path conversion failed');
+  } catch (converterError) {
+    return path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications');
+  }
+}
 
+// 列出 /usr/share/applications 下所有 .app 文件（开始菜单的完整应用来源；可按用户过滤隐藏）
+ipcMain.handle('apps:listAll', async (_, userId) => {
+  try {
+    const appsDir = await getApplicationsDir();
+    const uid = (await resolveCurrentUserId()) || userId;
+    const hidden = uid != null ? await config.getHiddenApps(uid) : [];
+    const hiddenPkgs = hidden
+      .map((h) => String(h).replace(/\.app$/i, '').split('.').slice(1).join('.').toLowerCase())
+      .filter(Boolean);
     const entries = await fs.readdir(appsDir);
     const apps = [];
     for (const entry of entries) {
       if (!entry.toLowerCase().endsWith('.app')) continue;
       const appName = entry.replace(/\.app$/i, '');
+      if (hidden.some((h) => h.toLowerCase() === `${appName}.app`.toLowerCase())) continue;
+      // 按包过滤：com.wps.app 被隐藏时，word/ppt/excel.wps.app 一并隐藏
+      const pkg = appName.split('.').slice(1).join('.').toLowerCase();
+      if (pkg && hiddenPkgs.includes(pkg)) continue;
       try {
         const raw = await fs.readFile(path.join(appsDir, entry), 'utf-8');
         const data = await convertAppDataPaths(JSON.parse(raw));
@@ -1576,6 +1751,144 @@ ipcMain.handle('apps:listAll', async () => {
   } catch (error) {
     console.error('Failed to list apps:', error.message);
     return { success: false, error: error.message, apps: [] };
+  }
+});
+
+/**
+ * 读取已安装包元信息：版本（aminfo.ini）与系统标记（system.flag）
+ */
+async function readPackageMeta(appName) {
+  const etcDir = path.join(config.AMSYS_ROOT, 'etc', String(appName).replace(/\.app$/i, '') + '.app');
+  let version = '';
+  let system = false;
+  try {
+    const ini = await fs.readFile(path.join(etcDir, 'aminfo.ini'), 'utf8');
+    const m = ini.match(/^\s*version\s*=\s*(.+?)\s*$/mi);
+    if (m) version = m[1].trim();
+  } catch {}
+  try {
+    const flag = await fs.readFile(path.join(etcDir, 'system.flag'), 'utf8');
+    system = flag.trim().toLowerCase() === 'system';
+  } catch {}
+  return { version, system };
+}
+
+// 列出已安装应用（/etc/apmlist 权威；按用户标注隐藏状态）
+ipcMain.handle('apps:listInstalled', async (_, userId) => {
+  try {
+    const uid = (await resolveCurrentUserId()) || userId;
+    const apmListPath = path.join(config.AMSYS_ROOT, 'etc', 'apmlist');
+    let lines = [];
+    try {
+      lines = (await fs.readFile(apmListPath, 'utf8'))
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+    } catch (e) {
+      return { success: false, error: `apmlist 不可读: ${e.message}`, apps: [] };
+    }
+
+    const hidden = uid != null ? await config.getHiddenApps(uid) : [];
+    const appsDir = await getApplicationsDir();
+    const apps = [];
+    for (const appName of lines) {
+      const base = appName.replace(/\.app$/i, '');
+      let name = base;
+      let description = '';
+      let icon = null;
+      try {
+        const raw = await fs.readFile(path.join(appsDir, `${base}.app`), 'utf-8');
+        const data = await convertAppDataPaths(JSON.parse(raw));
+        name = data.name || base;
+        description = data.description || '';
+        icon = await extractAppIcon(data, base);
+      } catch (e) {
+        console.warn('已安装应用缺少 .app 配置:', appName, e.message);
+      }
+      const { version, system } = await readPackageMeta(appName);
+      apps.push({
+        appName,
+        name,
+        description,
+        icon,
+        version,
+        system,
+        hidden: hidden.some((h) => h.toLowerCase() === appName.toLowerCase()),
+      });
+    }
+    return { success: true, apps };
+  } catch (error) {
+    console.error('Failed to list installed apps:', error.message);
+    return { success: false, error: error.message, apps: [] };
+  }
+});
+
+ipcMain.handle('apps:getHidden', async (_, userId) => {
+  const uid = (await resolveCurrentUserId()) || userId;
+  return { success: true, hiddenApps: await config.getHiddenApps(uid) };
+});
+
+ipcMain.handle('apps:setHidden', async (_, userId, appName, hidden) => {
+  const uid = (await resolveCurrentUserId()) || userId;
+  const list = await config.setHiddenApp(uid, appName, hidden);
+  // 即时刷新开始菜单（隐藏/解除隐藏立刻生效）
+  notifyStartMenuRefresh();
+  return { success: true, hiddenApps: list };
+});
+
+/**
+ * 卸载后清理所有用户桌面快捷方式中指向该应用的条目
+ */
+async function removeDesktopShortcuts(appName) {
+  const base = String(appName || '').replace(/\.app$/i, '');
+  try {
+    const entries = await fs.readdir(config.CONFIG_DIR, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory() || !/^\d+$/.test(e.name)) continue;
+      const desktopPath = path.join(config.CONFIG_DIR, e.name, 'desktop.json');
+      try {
+        const data = JSON.parse(await fs.readFile(desktopPath, 'utf8'));
+        if (!Array.isArray(data.desktopapp)) continue;
+        const before = data.desktopapp.length;
+        data.desktopapp = data.desktopapp.filter(
+          (a) => String(a.start || '').replace(/\.app$/i, '') !== base
+        );
+        if (data.desktopapp.length !== before) {
+          await fs.writeFile(desktopPath, JSON.stringify(data, null, 2), 'utf8');
+        }
+      } catch {}
+    }
+  } catch (err) {
+    console.warn('清理桌面快捷方式失败:', err.message);
+  }
+}
+
+// 卸载应用（调用 amsys 的 apm uninstall）
+ipcMain.handle('apps:uninstall', async (_, appName) => {
+  const apmPath = path.join(config.AMSYS_ROOT, 'bin', 'apm.exe');
+  try {
+    await fs.access(apmPath);
+  } catch (e) {
+    return { success: false, error: 'apm 未找到' };
+  }
+  const name = String(appName || '').replace(/\.app$/i, '') + '.app';
+  try {
+    const result = await new Promise((resolve) => {
+      const child = spawn(apmPath, ['uninstall', name], { windowsHide: true });
+      let output = '';
+      child.stdout.on('data', (d) => { output += d; });
+      child.stderr.on('data', (d) => { output += d; });
+      child.on('error', (err) => resolve({ success: false, error: err.message }));
+      child.on('close', (code) => resolve({ success: code === 0, code, output }));
+    });
+    if (result.success) {
+      await removeDesktopShortcuts(name);
+      // 即时刷新开始菜单（卸载后立刻消失）
+      notifyStartMenuRefresh();
+    }
+    return result;
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 });
 

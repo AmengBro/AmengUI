@@ -45,7 +45,9 @@ async function runToggle(button, valueEl, apiCall, labelOf, expected) {
       updateToggleButton(button, result.enabled);
       valueEl.textContent = labelOf(result.enabled);
     } else {
-      valueEl.textContent = (result && result.error === 'unsupported') ? '不支持' : '失败';
+      valueEl.textContent = (result && result.error === 'unsupported')
+        ? '不支持'
+        : (result && result.error === 'admin_required') ? '需要管理员' : '失败';
       setTimeout(() => { valueEl.textContent = original; }, 2000);
       if (typeof expected === 'boolean') updateToggleButton(button, !expected);
     }
@@ -1220,7 +1222,7 @@ async function initControlCenter() {
     if (document.hidden) return;
     if ($('view-main').classList.contains('hidden')) return;
     refreshQuickToggleStates();
-  }, 5000);
+  }, 10000);
   if (!capabilities || capabilities.audio) {
     loadMasterVolume();
   }

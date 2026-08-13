@@ -403,7 +403,11 @@ async function changeBackground() {
  * @param {string} imagePath - 图片路径
  */
 function applyBackground(imagePath) {
-  document.body.style.backgroundImage = `url('file://${imagePath.replace(/\\/g, '/')}')`;
+  let url = String(imagePath || '').replace(/\\/g, '/');
+  if (!/^file:\/\//i.test(url)) {
+    url = 'file:///' + url.replace(/^\/+/, '');
+  }
+  document.body.style.backgroundImage = `url('${url}')`;
 }
 
 /**

@@ -29,7 +29,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.body.style.backgroundSize = 'cover';
         document.body.style.backgroundPosition = 'center';
         document.body.style.backgroundRepeat = 'no-repeat';
-        document.body.style.background = 'transparent';
       }
       
       document.getElementById('username-display').textContent = currentUsername;

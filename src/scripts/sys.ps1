@@ -21,6 +21,8 @@ $script:wifiStatusCache = $null
 $script:btDevicesCache = $null
 $script:btScanCache = $null
 $script:btStatusCache = $null
+$script:flightStatusCache = $null
+$script:hotspotStatusCache = $null
 $script:btTypeLoaded = $false
 
 # 运行时版本：预留 pwsh7（PowerShell 7 / Core）路径。
@@ -59,9 +61,6 @@ public static class WifiRadioNative
     private const int DOT11_RADIO_STATE_OFF = 2;
     // WLAN_RADIO_STATE.PhyRadioState 固定为 WLAN_MAX_PHY_INDEX(64) 项（每项 12 字节），
     // 因此查询返回的数据大小为 4 + 64*12 = 772 字节，仅前 dwNumberOfPhys 项有效。
-    private const int WLAN_MAX_PHY_INDEX = 64;
-    private const int PHY_ENTRY_SIZE = 12;
-
     [DllImport("wlanapi.dll")]
     private static extern int WlanOpenHandle(uint dwClientVersion, IntPtr pReserved, out uint pdwNegotiatedVersion, out IntPtr phClientHandle);
 
@@ -70,9 +69,6 @@ public static class WifiRadioNative
 
     [DllImport("wlanapi.dll")]
     private static extern int WlanQueryInterface(IntPtr hClientHandle, ref Guid pInterfaceGuid, int OpCode, IntPtr pReserved, out uint pdwDataSize, out IntPtr ppData, IntPtr pNotificationSource);
-
-    [DllImport("wlanapi.dll")]
-    private static extern int WlanSetInterface(IntPtr hClientHandle, ref Guid pInterfaceGuid, int OpCode, uint dwDataSize, IntPtr pData, IntPtr pReserved);
 
     [DllImport("wlanapi.dll")]
     private static extern int WlanFreeMemory(IntPtr pMemory);
@@ -137,114 +133,6 @@ public static class WifiRadioNative
         }
     }
 
-    // 设置软件无线电状态（与 Windows 系统 WiFi 开关等效）。
-    // 关键：逐个写入所有有效 PHY——实测 AX201 上"只写首个 PHY"无法把无线电重新打开
-    // （关闭只写 PHY0 有效，但上电必须写全部 PHY）。
-    // 曾经的"开启请求触发关断"异常，根因是无线电已开启时仍重复写 ON；
-    // 现在由下方的幂等判断（current == enable 直接返回）彻底规避，切换时才写。
-    // 数据为单个 WLAN_PHY_RADIO_STATE（12 字节：dwPhyIndex + software + hardware），
-    // hardware 字段在 Set 时被系统忽略。返回 null 表示成功。
-    public static string Set(bool enable, out bool current)
-    {
-        current = false;
-        IntPtr handle;
-        uint negotiated;
-        int hr = WlanOpenHandle(WLAN_CLIENT_VERSION_V2, IntPtr.Zero, out negotiated, out handle);
-        if (hr != 0) return "WlanOpenHandle failed: 0x" + hr.ToString("X8");
-        try
-        {
-            IntPtr listPtr;
-            hr = WlanEnumInterfaces(handle, IntPtr.Zero, out listPtr);
-            if (hr != 0) return "WlanEnumInterfaces failed: 0x" + hr.ToString("X8");
-            try
-            {
-                uint count = (uint)Marshal.ReadInt32(listPtr, 0);
-                if (count == 0) return "no wireless interface";
-                Guid guid = (Guid)Marshal.PtrToStructure(new IntPtr(listPtr.ToInt64() + 8), typeof(Guid));
-                uint dataSize;
-                IntPtr dataPtr;
-                hr = WlanQueryInterface(handle, ref guid, WLAN_INTF_OPCODE_RADIO_STATE, IntPtr.Zero, out dataSize, out dataPtr, IntPtr.Zero);
-                if (hr != 0) return "WlanQueryInterface(radio_state) failed: 0x" + hr.ToString("X8");
-                try
-                {
-                    int phyCount = Marshal.ReadInt32(dataPtr, 0);
-                    if (phyCount <= 0) return "no phy";
-                    // 幂等判断：当前首 PHY 软件状态已等于目标则直接返回。
-                    // 这同时防止"无线电已开启时重复写 ON 触发驱动异常关断"（历史事故）。
-                    current = (Marshal.ReadInt32(dataPtr, 8) != DOT11_RADIO_STATE_OFF);
-                    if (current == enable) return null;
-                    // 逐个 PHY 写入目标软件状态（AX201 上开启必须写全部 PHY）
-                    int limit = phyCount;
-                    if (limit > WLAN_MAX_PHY_INDEX) limit = WLAN_MAX_PHY_INDEX;
-                    byte[] phyBuf = new byte[PHY_ENTRY_SIZE];
-                    phyBuf[4] = (byte)(enable ? DOT11_RADIO_STATE_ON : DOT11_RADIO_STATE_OFF);
-                    phyBuf[8] = (byte)DOT11_RADIO_STATE_ON; // hardware 字段 Set 时被忽略
-                    IntPtr phyPtr = Marshal.AllocHGlobal(PHY_ENTRY_SIZE);
-                    try
-                    {
-                        for (int i = 0; i < limit; i++)
-                        {
-                            int idx = Marshal.ReadInt32(dataPtr, 4 + i * PHY_ENTRY_SIZE);
-                            phyBuf[0] = (byte)idx;
-                            phyBuf[1] = (byte)(idx >> 8);
-                            phyBuf[2] = (byte)(idx >> 16);
-                            phyBuf[3] = (byte)(idx >> 24);
-                            Marshal.Copy(phyBuf, 0, phyPtr, PHY_ENTRY_SIZE);
-                            hr = WlanSetInterface(handle, ref guid, WLAN_INTF_OPCODE_RADIO_STATE, PHY_ENTRY_SIZE, phyPtr, IntPtr.Zero);
-                            if (hr != 0)
-                            {
-                                // 驱动偶发瞬时错误：等 500ms 重试一次
-                                System.Threading.Thread.Sleep(500);
-                                hr = WlanSetInterface(handle, ref guid, WLAN_INTF_OPCODE_RADIO_STATE, PHY_ENTRY_SIZE, phyPtr, IntPtr.Zero);
-                                if (hr != 0) return "WlanSetInterface(radio_state, phy " + idx + ") failed: 0x" + hr.ToString("X8");
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        Marshal.FreeHGlobal(phyPtr);
-                    }
-                }
-                finally
-                {
-                    WlanFreeMemory(dataPtr);
-                }
-                // 无线电状态由驱动异步生效（关闭约 1~2 秒，开启可能更久），
-                // 轮询直到"首个 PHY"状态收敛到目标值（多 PHY 网卡上从属 PHY
-                // 可能保持 off，不能作为收敛依据），避免向 UI 返回陈旧状态。
-                DateTime deadline = DateTime.UtcNow.AddSeconds(35);
-                bool converged = false;
-                while (true)
-                {
-                    System.Threading.Thread.Sleep(500);
-                    uint s2;
-                    IntPtr d2;
-                    hr = WlanQueryInterface(handle, ref guid, WLAN_INTF_OPCODE_RADIO_STATE, IntPtr.Zero, out s2, out d2, IntPtr.Zero);
-                    if (hr == 0)
-                    {
-                        try
-                        {
-                            int n2 = Marshal.ReadInt32(d2, 0);
-                            converged = (n2 > 0) && (Marshal.ReadInt32(d2, 8) != DOT11_RADIO_STATE_OFF);
-                        }
-                        finally { WlanFreeMemory(d2); }
-                        if (converged == enable) { current = converged; return null; }
-                    }
-                    if (DateTime.UtcNow >= deadline) break;
-                }
-                current = converged;
-                return "radio state did not converge within 35s (desired=" + (enable ? "on" : "off") + ", actual=" + (converged ? "on" : "off") + ")";
-            }
-            finally
-            {
-                WlanFreeMemory(listPtr);
-            }
-        }
-        finally
-        {
-            WlanCloseHandle(handle, IntPtr.Zero);
-        }
-    }
 }
 '@ -ErrorAction Stop
     $script:wifiRadioTypeLoaded = $true
@@ -732,26 +620,6 @@ function Invoke-NetworkStatus {
   return [pscustomobject]@{ success = $true; enabled = $isUp; name = $name }
 }
 
-function Invoke-NetworkToggle {
-  $name = Get-NetAdapterName
-  if (-not $name) { return [pscustomobject]@{ success = $false; enabled = $null; name = ''; error = 'no_adapter' } }
-  $isUp = Get-NetworkState $name
-  if ($null -eq $isUp) { return [pscustomobject]@{ success = $false; enabled = $null; name = $name; error = 'not_found' } }
-  if ($isUp) {
-    & netsh interface set interface name="$name" admin=disabled
-    if ($LASTEXITCODE -eq 0) {
-      return [pscustomobject]@{ success = $true; enabled = $false; name = $name }
-    }
-    return [pscustomobject]@{ success = $false; enabled = $null; name = $name; error = 'set_failed' }
-  } else {
-    & netsh interface set interface name="$name" admin=enabled
-    if ($LASTEXITCODE -eq 0) {
-      return [pscustomobject]@{ success = $true; enabled = $true; name = $name }
-    }
-    return [pscustomobject]@{ success = $false; enabled = $null; name = $name; error = 'set_failed' }
-  }
-}
-
 function Invoke-BluetoothStatus {
   # 5 秒缓存，避免界面反复触发慢速查询
   if ($null -ne $script:btStatusCache -and ((Get-Date) - $script:btStatusCache.at).TotalSeconds -lt 5) {
@@ -776,6 +644,12 @@ function Invoke-BluetoothStatus {
 }
 
 function Invoke-BluetoothToggle {
+  # pnputil 与 bthserv 服务控制均需要管理员权限；非管理员直接快速失败，
+  # 避免长达数秒的无意义轮询等待（此前体验为"开关很慢/难以更改"）。
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) {
+    return [pscustomobject]@{ success = $false; enabled = $null; error = 'admin_required' }
+  }
   $instance = Get-BtInstance
   $svc = Get-Service bthserv -ErrorAction SilentlyContinue
   # 先确定当前真实状态（不依赖缓存）
@@ -865,19 +739,31 @@ function Test-FlightModeApi {
 }
 
 function Get-FlightModeStatus {
+  # 5 秒缓存：WinRT 枚举（PS7 下为子进程委托）有成本，避免界面反复触发
+  if ($null -ne $script:flightStatusCache -and ((Get-Date) - $script:flightStatusCache.at).TotalSeconds -lt 5) {
+    return $script:flightStatusCache.data
+  }
+  if ($script:IsPwsh7) {
+    $r = Invoke-WinrtDelegated 'flightStatus'
+    if ($r -and $null -ne $r.enabled) { $script:flightStatusCache = @{ at = Get-Date; data = $r } }
+    return $r
+  }
   try {
     $radios = @(Get-FlightRadios)
     if ($radios.Count -eq 0) {
       return [pscustomobject]@{ success = $false; enabled = $null; error = 'unsupported' }
     }
     $anyOn = @($radios | Where-Object { $_.State -eq $script:flightStateType::On }).Count -gt 0
-    return [pscustomobject]@{ success = $true; enabled = (-not $anyOn) }
+    $result = [pscustomobject]@{ success = $true; enabled = (-not $anyOn) }
+    $script:flightStatusCache = @{ at = Get-Date; data = $result }
+    return $result
   } catch {
     return [pscustomobject]@{ success = $false; enabled = $null; error = 'unsupported'; detail = $_.Exception.Message }
   }
 }
 
 function Invoke-FlightToggle {
+  $script:flightStatusCache = $null
   try {
     $radios = @(Get-FlightRadios)
     if ($radios.Count -eq 0) {
@@ -950,12 +836,12 @@ function Get-BtRadioEnabled {
 }
 
 function Invoke-WinrtDelegated {
-  param([string]$op)
+  param([string]$op, [object]$state = '')
   # PowerShell 7 无法直接加载 WinRT 类型（.NET Core 不支持 ContentType=WindowsRuntime 投影），
   # 委托系统 Windows PowerShell 5.1 执行 WinRT 操作（5.1 为 Windows 系统自带组件）。
   try {
     $helper = Join-Path $PSScriptRoot 'winrt.ps1'
-    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $helper -Op $op 2>$null
+    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $helper -Op $op -State $state 2>$null
     $json = ($out | Out-String).Trim()
     if ($json) { return ($json | ConvertFrom-Json) }
   } catch { }
@@ -996,18 +882,30 @@ function Get-HotspotManager {
 }
 
 function Get-HotspotStatus {
+  # 5 秒缓存：WinRT 查询（PS7 下为子进程委托）有成本，避免界面反复触发
+  if ($null -ne $script:hotspotStatusCache -and ((Get-Date) - $script:hotspotStatusCache.at).TotalSeconds -lt 5) {
+    return $script:hotspotStatusCache.data
+  }
+  if ($script:IsPwsh7) {
+    $r = Invoke-WinrtDelegated 'hotspotStatus'
+    if ($r -and $null -ne $r.enabled) { $script:hotspotStatusCache = @{ at = Get-Date; data = $r } }
+    return $r
+  }
   try {
     $m = Get-HotspotManager
     if ($null -eq $m) {
       return [pscustomobject]@{ success = $false; enabled = $null; error = 'unsupported' }
     }
-    return [pscustomobject]@{ success = $true; enabled = (([string]$m.TetheringOperationalState) -eq 'On') }
+    $result = [pscustomobject]@{ success = $true; enabled = (([string]$m.TetheringOperationalState) -eq 'On') }
+    $script:hotspotStatusCache = @{ at = Get-Date; data = $result }
+    return $result
   } catch {
     return [pscustomobject]@{ success = $false; enabled = $null; error = 'unsupported'; detail = $_.Exception.Message }
   }
 }
 
 function Invoke-HotspotToggle {
+  $script:hotspotStatusCache = $null
   try {
     $m = Get-HotspotManager
     if ($null -eq $m) {
@@ -1084,24 +982,42 @@ function Invoke-WifiStatus {
 
 function Invoke-WifiPower {
   param($enable)
-  # 安全实现：wlanapi 无线电状态切换（与 Windows 系统 WiFi 开关等效）。
-  #  - 只写首个 PHY（AX201 上写全部 PHY 会导致无线电异常关断）
-  #  - 无需管理员权限、不依赖 netsh 接口可见性
-  #  - 网卡适配器与系统设置中的 WiFi 开关完全不受影响
-  #  - 内部轮询等待驱动异步收敛，返回真实最终状态
-  if (-not (Ensure-WifiRadioType)) {
-    return [pscustomobject]@{ success = $false; enabled = $null; error = 'wlanapi_unavailable' }
+  # 安全实现：改用系统 WinRT 无线电 API（Windows.Devices.Radios.Radio，与 Windows
+  # 操作中心 WiFi 开关同机制）。彻底移除 wlanapi WlanSetInterface 裸写——那在
+  # AX201 等驱动上曾引发无线电异常关断、WiFi 图标消失等问题（见文件头历史教训）。
+  #  - 不禁用网卡、不触碰 WLAN AutoConfig，WiFi 图标与系统开关不受影响
+  #  - 无需管理员权限
+  #  - 轮询等待状态收敛（最长 10 秒），返回真实最终状态
+  try {
+    $radios = @(Get-FlightRadios)
+    $wifi = @($radios | Where-Object { ([string]$_.Kind) -eq 'WiFi' })[0]
+    if ($null -eq $wifi) {
+      return [pscustomobject]@{ success = $false; enabled = $null; error = 'wlanapi_unavailable' }
+    }
+    $target = if ($enable) { $script:flightStateType::On } else { $script:flightStateType::Off }
+    Set-FlightRadioState $wifi $target
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $converged = $null
+    while ($sw.Elapsed.TotalSeconds -lt 10) {
+      Start-Sleep -Milliseconds 400
+      $rs = @(Get-FlightRadios)
+      $w2 = @($rs | Where-Object { ([string]$_.Kind) -eq 'WiFi' })[0]
+      if ($null -ne $w2) {
+        $converged = ($w2.State -eq $target)
+        if ($converged) { break }
+      }
+    }
+    $script:wifiScanCache = $null
+    $script:wifiStatusCache = $null
+    # 开启 WiFi 时顺带恢复自动配置（需要管理员权限；失败不影响无线电已开启的事实）
+    if ($enable) { Enable-AutoConfig | Out-Null }
+    if ($converged) {
+      return [pscustomobject]@{ success = $true; enabled = $enable }
+    }
+    return [pscustomobject]@{ success = $false; enabled = $null; error = 'timeout' }
+  } catch {
+    return [pscustomobject]@{ success = $false; enabled = $null; error = 'wlanapi_unavailable'; detail = $_.Exception.Message }
   }
-  $current = $false
-  $err = [WifiRadioNative]::Set([bool]$enable, [ref]$current)
-  if ($err) {
-    return [pscustomobject]@{ success = $false; enabled = $null; error = $err }
-  }
-  $script:wifiScanCache = $null
-  $script:wifiStatusCache = $null
-  # 开启 WiFi 时顺带恢复自动配置（需要管理员权限；失败不影响无线电已开启的事实）
-  if ($enable) { Enable-AutoConfig | Out-Null }
-  return [pscustomobject]@{ success = $true; enabled = $current }
 }
 
 function Invoke-WifiScan {
@@ -1194,15 +1110,22 @@ function Invoke-WifiConnect {
   $ssid = [string]$ssid
   if ([string]::IsNullOrEmpty($ssid)) { return [pscustomobject]@{ success = $false; error = 'no_ssid' } }
   $escapedSsid = [System.Security.SecurityElement]::Escape($ssid)
-  # 用户主动选择网络 = 视为开启 WiFi：先确保无线电开启（wlanapi，无需管理员）
-  if (Ensure-WifiRadioType) {
-    $cur = $false
-    $radioErr = [WifiRadioNative]::Set($true, [ref]$cur)
-    if (-not $radioErr) {
-      $script:wifiScanCache = $null
-      $script:wifiStatusCache = $null
+  # 用户主动选择网络 = 视为开启 WiFi：若无线电当前关闭则开启（系统 Radio API，
+  # 无需管理员、不触碰网卡；已开启时零开销）
+  try {
+    $radios = @(Get-FlightRadios)
+    $wifi = @($radios | Where-Object { ([string]$_.Kind) -eq 'WiFi' })[0]
+    if ($null -ne $wifi -and $wifi.State -ne $script:flightStateType::On) {
+      Set-FlightRadioState $wifi $script:flightStateType::On
+      $sw = [System.Diagnostics.Stopwatch]::StartNew()
+      while ($sw.Elapsed.TotalSeconds -lt 5) {
+        Start-Sleep -Milliseconds 300
+        $rs = @(Get-FlightRadios)
+        $w2 = @($rs | Where-Object { ([string]$_.Kind) -eq 'WiFi' })[0]
+        if ($null -ne $w2 -and $w2.State -eq $script:flightStateType::On) { break }
+      }
     }
-  }
+  } catch { }
   # 自动配置关闭会导致连接失败：尝试恢复（需要管理员权限；失败忽略，connect 仍会执行）
   Enable-AutoConfig | Out-Null
 
@@ -1553,8 +1476,6 @@ function Invoke-SysCommand {
     Get-Capabilities
   } elseif ($cmd -eq 'networkStatus') {
     Invoke-NetworkStatus
-  } elseif ($cmd -eq 'networkToggle') {
-    Invoke-NetworkToggle
   } elseif ($cmd -eq 'bluetoothStatus') {
     Invoke-BluetoothStatus
   } elseif ($cmd -eq 'bluetoothToggle') {
@@ -1568,9 +1489,10 @@ function Invoke-SysCommand {
     # 注意 [bool]'false' 在 PowerShell 中为 $true，不能直接用强制转换。
     $raw = $cmdArgs[0]
     if ($raw -is [bool]) {
-      Invoke-WifiPower $raw
+      if ($script:IsPwsh7) { Invoke-WinrtDelegated 'wifiPower' $raw } else { Invoke-WifiPower $raw }
     } else {
-      Invoke-WifiPower ($raw -match '^(true|1|yes)$')
+      $parsed = ($raw -match '^(true|1|yes)$')
+      if ($script:IsPwsh7) { Invoke-WinrtDelegated 'wifiPower' $parsed } else { Invoke-WifiPower $parsed }
     }
   } elseif ($cmd -eq 'wifiScan') {
     Invoke-WifiScan
@@ -1595,9 +1517,9 @@ function Invoke-SysCommand {
   } elseif ($cmd -eq 'flightToggle') {
     if ($script:IsPwsh7) { Invoke-WinrtDelegated 'flightToggle' } else { Invoke-FlightToggle }
   } elseif ($cmd -eq 'flightStatus') {
-    if ($script:IsPwsh7) { Invoke-WinrtDelegated 'flightStatus' } else { Get-FlightModeStatus }
+    Get-FlightModeStatus
   } elseif ($cmd -eq 'hotspotStatus') {
-    if ($script:IsPwsh7) { Invoke-WinrtDelegated 'hotspotStatus' } else { Get-HotspotStatus }
+    Get-HotspotStatus
   } elseif ($cmd -eq 'hotspotToggle') {
     if ($script:IsPwsh7) { Invoke-WinrtDelegated 'hotspotToggle' } else { Invoke-HotspotToggle }
   } elseif ($cmd -eq 'getBrightness') {

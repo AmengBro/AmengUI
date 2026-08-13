@@ -655,6 +655,506 @@ body {
   color: var(--system-critical);
 }
 
+/* 密码开关状态 */
+.pwd-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 4px;
+}
+
+.pwd-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--system-critical);
+  flex-shrink: 0;
+}
+
+.pwd-status-dot.on {
+  background: var(--system-success);
+}
+
+.pwd-status-text {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--system-critical);
+}
+
+.pwd-status-text.on {
+  color: var(--system-success);
+}
+
+.pwd-status-row .win-btn {
+  margin-left: auto;
+}
+
+.pwd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.pwd-label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+}
+
+/* 密码输入框内的“显示/隐藏密码”按钮（WinUI 风格） */
+.pwd-input-wrap {
+  position: relative;
+}
+
+.pwd-input-wrap .win-textbox {
+  padding-right: 40px;
+}
+
+.pwd-reveal-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 26px;
+  border: none;
+  border-radius: var(--ControlCornerRadius);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.pwd-reveal-btn:hover {
+  background: var(--subtle-secondary);
+  color: var(--text-primary);
+}
+
+.pwd-reveal-btn:active {
+  background: var(--subtle-pressed);
+}
+
+.pwd-reveal-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+.pwd-reveal-btn .icon-off {
+  display: none;
+}
+
+.pwd-reveal-btn.showing .icon-on {
+  display: none;
+}
+
+.pwd-reveal-btn.showing .icon-off {
+  display: block;
+}
+
+/* 修改密码入口行（密码开启时显示） */
+.pwd-change-row {
+  border-top: 1px solid var(--card-stroke);
+}
+
+/* 密码操作悬浮窗（红色边框） */
+.pwd-dialog {
+  border: 2px solid var(--system-critical);
+  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.28),
+    0 0 0 4px color-mix(in srgb, var(--system-critical) 18%, transparent);
+}
+
+/* ============================================================
+   高级管理（其他用户）
+   ============================================================ */
+.admin-header {
+  justify-content: flex-start;
+}
+
+.admin-new-btn {
+  margin-left: auto;
+}
+
+.admin-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-user {
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.admin-user-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.admin-user-head:hover {
+  background: var(--subtle-secondary);
+}
+
+.admin-user-avatar {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-base);
+  color: var(--accent-text);
+  overflow: hidden;
+}
+
+.admin-user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-user-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.admin-icon-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--ControlCornerRadius);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.admin-icon-btn:hover {
+  background: var(--subtle-secondary);
+  color: var(--text-primary);
+}
+
+.admin-icon-btn:active {
+  background: var(--subtle-pressed);
+}
+
+.admin-icon-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+.admin-icon-btn.delete {
+  color: var(--system-critical);
+}
+
+.admin-icon-btn.delete:hover {
+  background: color-mix(in srgb, var(--system-critical) 12%, transparent);
+  color: var(--system-critical);
+}
+
+.admin-icon-btn:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.admin-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--system-critical);
+  white-space: nowrap;
+}
+
+.admin-icon-btn.yes {
+  color: var(--system-success);
+}
+
+.admin-icon-btn.no {
+  color: var(--system-critical);
+}
+
+.admin-icon-btn.yes:hover,
+.admin-icon-btn.no:hover {
+  background: var(--subtle-secondary);
+}
+
+.admin-user-detail {
+  border-top: 1px solid var(--card-stroke);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--card-bg-secondary);
+}
+
+.admin-detail-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.admin-detail-label {
+  flex: 0 0 72px;
+  color: var(--text-secondary);
+}
+
+.admin-detail-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-detail-line input,
+.admin-detail-line select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 用户名修改的严重性警告（红字） */
+.admin-username-warning {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--system-critical);
+  padding-left: 84px; /* 与字段值对齐（标签 72px + gap 12px） */
+}
+
+.admin-pwd-status {
+  color: var(--system-success);
+}
+
+.admin-pwd-status.off {
+  color: var(--system-critical);
+}
+
+.admin-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.admin-row-status {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.admin-row-status.error {
+  color: var(--system-critical);
+}
+
+.admin-row-status.success {
+  color: var(--system-success);
+}
+
+.win-select {
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--ctrl-border-rest);
+  border-bottom-color: var(--ctrl-strong-stroke);
+  border-radius: var(--ControlCornerRadius);
+  background: var(--ctrl-fill-default);
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.win-select:hover {
+  background: var(--ctrl-fill-secondary);
+}
+
+.win-select:disabled {
+  background: var(--ctrl-fill-disabled);
+  color: var(--text-disabled);
+}
+
+/* ============================================================
+   已安装的应用
+   ============================================================ */
+.installed-apps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.installed-app {
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.installed-app-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.installed-app-head:hover {
+  background: var(--subtle-secondary);
+}
+
+.installed-app-icon {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.installed-app-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.installed-app-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-tag {
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.app-tag.system {
+  color: var(--accent-text);
+  background: var(--accent-base);
+}
+
+.app-tag.hidden {
+  color: var(--text-secondary);
+  background: var(--subtle-secondary);
+  border: 1px solid var(--card-stroke);
+}
+
+.installed-app-version {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.installed-app-more {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  display: flex;
+}
+
+.installed-app.expanded .installed-app-more {
+  display: none;
+}
+
+/* 行内操作区（滑入淡入） */
+.installed-app-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.installed-app.expanded .installed-app-actions {
+  animation: app-actions-in var(--fast-duration) var(--fast-out-slow-in);
+}
+
+@keyframes app-actions-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.installed-app-actions .admin-icon-btn.delete {
+  color: var(--system-critical);
+}
+
+.installed-app-actions .admin-icon-btn.delete:disabled,
+.installed-app-actions .admin-icon-btn.delete:disabled:hover {
+  color: var(--text-disabled);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.installed-app-uninstall-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--system-critical);
+  white-space: nowrap;
+  flex-shrink: 0;
+  animation: app-confirm-in var(--fast-duration) var(--fast-out-slow-in);
+}
+
+@keyframes app-confirm-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* 推荐设置卡片 */
 .reco-card {
   background: var(--card-bg);
@@ -903,6 +1403,10 @@ body {
 .bg-preview-empty {
   font-size: 14px;
   color: var(--text-tertiary);
+}
+
+.bg-card-title {
+  margin-bottom: 10px;
 }
 
 .bg-actions {

@@ -344,7 +344,7 @@ async function syncUsersFromPasswdShadow() {
       };
       const newConfig = config ? { ...config, login } : {
         login,
-        profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4' }
+        profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating' }
       };
       const newContent = JSON.stringify(newConfig, null, 2);
       let oldContent = null;
@@ -564,11 +564,13 @@ async function getUsers() {
   const users = [];
   for (const r of records) {
     let photo = null;
+    let hasPassword = false;
     try {
       const cfg = JSON.parse(await fs.readFile(getUserConfigPath(r.userid), 'utf8'));
       photo = (cfg.login && cfg.login.photo) || null;
+      hasPassword = !!(cfg.login && cfg.login.password);
     } catch {}
-    users.push({ userid: r.userid, username: r.username, photo, permi: r.permi, loginName: r.loginName });
+    users.push({ userid: r.userid, username: r.username, photo, permi: r.permi, loginName: r.loginName, hasPassword });
   }
   return users;
 }
@@ -606,7 +608,8 @@ async function getUserConfig(userId) {
     profile: {
       loginbg: null,
       themebd: 'dark',
-      themecolor: '#0078D4'
+      themecolor: '#0078D4',
+      taskbar: 'floating'
     }
   };
   
@@ -641,8 +644,10 @@ async function getSettings(userId = null) {
     const userConfig = await getUserConfig(userId);
     return {
       background: userConfig.profile.loginbg,
+      loginBackground: userConfig.profile.loginbg,
       theme: userConfig.profile.themebd,
-      accentColor: userConfig.profile.themecolor
+      accentColor: userConfig.profile.themecolor,
+      taskbar: userConfig.profile.taskbar || 'floating'
     };
   }
   
@@ -659,44 +664,48 @@ async function getSettings(userId = null) {
  * @param {string} password - 密码（明文，存为无盐 MD5 到 shadow）
  * @param {string} photo - 头像路径（可选，仅存 config.json）
  * @param {string} permi - 权限：root/sudo/user（默认 user）
+ * @param {string} nickname - 全名（passwd 字段5），缺省时与用户名一致
  * @returns {Promise<Object|null>} 新创建的用户；用户名已存在返回 null
  */
-async function addUser(username, password = '', photo = null, permi = 'user') {
+async function addUser(username, password = '', photo = null, permi = 'user', nickname = null) {
   if (!username) return null;
   const perm = VALID_PERMISSIONS.includes(permi) ? permi : 'user';
+  const loginName = String(username).trim();
+  const nick = (nickname && String(nickname).trim()) || loginName;
+  if (!loginName || !nick) return null;
   const records = await readPasswdShadow();
-  if (records.some((r) => r.loginName === username || r.username === username)) {
-    return null; // 用户名（登录名/昵称）已存在
+  if (records.some((r) => r.loginName === loginName || r.username === loginName || r.username === nick)) {
+    return null; // 登录名/全名与现有用户冲突
   }
 
   let maxUid = 0;
   for (const r of records) if (r.userid > maxUid) maxUid = r.userid;
   const uid = Math.max(1000, maxUid + 1);
-  const loginName = username;
-  const home = perm === 'root' ? '/root' : `/home/${username}`;
+  const home = perm === 'root' ? '/root' : `/home/${loginName}`;
   const hash = normalizePassword(password);
 
   await rewriteAuthUser(
     loginName,
-    makePasswdLine(loginName, perm, uid, username, home),
+    makePasswdLine(loginName, perm, uid, nick, home),
     makeShadowLine(loginName, hash)
   );
 
   await ensureUserDir(uid);
   await saveJSON(getUserConfigPath(uid), {
-    login: { userid: uid, username, password: hash, photo, permi: perm },
-    profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4' }
+    login: { userid: uid, username: nick, password: hash, photo, permi: perm },
+    profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating' }
   });
 
   await syncUsersFromPasswdShadow();
-  return { userid: uid, username, photo, permi: perm };
+  return { userid: uid, username: nick, loginName, photo, permi: perm };
 }
 
 /**
  * 更新用户信息（直接写 /etc/passwd 与 /etc/shadow）
  * @param {number} userId - 用户ID（UID）
  * @param {Object} updates - 要更新的字段（username/permi/password/photo/nickname）
- *   nickname：仅改昵称（passwd 字段5/全名），登录名保持不变，home 目录跟随昵称重命名
+ *   username：登录名（字段1），home 目录跟随登录名重命名
+ *   nickname：仅改昵称（passwd 字段5/全名），登录名与 home 目录保持不变
  * @returns {Promise<Object|null>} 更新后的用户或null
  */
 async function updateUser(userId, updates) {
@@ -704,6 +713,24 @@ async function updateUser(userId, updates) {
   const rec = records.find((r) => r.userid === userId);
   if (!rec) return null;
   const { password, ...safeUpdates } = updates;
+
+  // 重名预检（排除自己）：登录名或全名与现有其他用户冲突时拒绝修改，
+  // 避免改到一半（如 home 已重命名）才发现冲突
+  const plannedLoginName = (safeUpdates.username !== undefined && safeUpdates.username !== rec.username)
+    ? String(safeUpdates.username).trim()
+    : rec.loginName;
+  const plannedNickRaw = (safeUpdates.username !== undefined && safeUpdates.username !== rec.username)
+    ? String(safeUpdates.username).trim()
+    : rec.username;
+  const plannedNick = (safeUpdates.nickname !== undefined && String(safeUpdates.nickname).trim()
+    && String(safeUpdates.nickname).trim() !== rec.username)
+    ? String(safeUpdates.nickname).trim()
+    : plannedNickRaw;
+  if (!plannedLoginName || !plannedNick) return null;
+  if (records.some((r) => r.userid !== userId
+    && (r.loginName === plannedLoginName || r.username === plannedNick))) {
+    return null;
+  }
 
   let loginName = rec.loginName;
   let nick = rec.username;
@@ -717,31 +744,22 @@ async function updateUser(userId, updates) {
   if (safeUpdates.username !== undefined && safeUpdates.username !== rec.username) {
     nick = safeUpdates.username;
     loginName = safeUpdates.username; // 字段1 与昵称保持一致
-    // 重命名 home 目录（root 的 /root 不迁移）
+    // home 目录跟随登录名迁移（root 的 /root 不迁移）
     if (userId !== 0) {
-      const oldHome = path.join(AMSYS_ROOT, 'home', rec.username);
-      const newHome = path.join(AMSYS_ROOT, 'home', nick);
-      try {
-        await fs.access(oldHome);
-        await fs.rename(oldHome, newHome);
-      } catch {}
-    }
-  }
-  // 仅改昵称（passwd 字段5 / 全名）：登录名与 home 目录跟随昵称，但不改字段1
-  if (safeUpdates.nickname !== undefined && String(safeUpdates.nickname).trim() !== rec.username) {
-    const newNick = String(safeUpdates.nickname).trim();
-    if (newNick) {
-      const oldNick = nick;
-      nick = newNick;
-      if (userId !== 0 && newNick !== oldNick) {
-        const oldHome = path.join(AMSYS_ROOT, 'home', oldNick);
-        const newHome = path.join(AMSYS_ROOT, 'home', newNick);
+      const oldHomePath = rec.home === '/root' ? null : path.join(AMSYS_ROOT, String(rec.home || '').replace(/^[\\/]+/, ''));
+      const newHomePath = path.join(AMSYS_ROOT, 'home', String(loginName).trim());
+      if (oldHomePath && newHomePath !== oldHomePath) {
         try {
-          await fs.access(oldHome);
-          await fs.rename(oldHome, newHome);
+          await fs.access(oldHomePath);
+          await fs.rename(oldHomePath, newHomePath);
         } catch {}
       }
     }
+  }
+  // 仅改昵称（passwd 字段5 / 全名）：不改登录名，home 目录保持跟随登录名
+  if (safeUpdates.nickname !== undefined && String(safeUpdates.nickname).trim() !== rec.username) {
+    const newNick = String(safeUpdates.nickname).trim();
+    if (newNick) nick = newNick;
   }
   if (safeUpdates.permi !== undefined) {
     perm = VALID_PERMISSIONS.includes(safeUpdates.permi) ? safeUpdates.permi : 'user';
@@ -752,7 +770,7 @@ async function updateUser(userId, updates) {
   }
 
   const hash = password !== undefined ? normalizePassword(password) : rec.password;
-  const home = perm === 'root' ? '/root' : `/home/${nick}`;
+  const home = perm === 'root' ? '/root' : `/home/${loginName}`;
   const prevLoginName = loginName !== rec.loginName ? rec.loginName : null;
 
   await rewriteAuthUser(
@@ -769,7 +787,7 @@ async function updateUser(userId, updates) {
   const login = { userid: userId, username: nick, password: hash, photo, permi: perm };
   await saveJSON(getUserConfigPath(userId), config ? { ...config, login } : {
     login,
-    profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4' }
+    profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating' }
   });
 
   await syncUsersFromPasswdShadow();
@@ -872,6 +890,17 @@ async function setAccentColor(color, userId) {
 }
 
 /**
+ * 设置任务栏模式（floating=浮动 / docked=停靠）
+ * @param {string} mode - 'floating' 或 'docked'
+ * @param {number} userId - 用户ID
+ */
+async function setTaskbarMode(mode, userId) {
+  const userConfig = await getUserConfig(userId);
+  userConfig.profile.taskbar = mode === 'docked' ? 'docked' : 'floating';
+  await saveUserConfig(userId, userConfig);
+}
+
+/**
  * 设置用户权限
  * @param {number} userId - 用户ID
  * @param {string} permi - 权限级别：root/sudo/user
@@ -883,7 +912,7 @@ async function setPermission(userId, permi) {
   if (!rec) return;
 
   const perm = userId === 0 ? 'root' : permi; // root 恒为 root
-  const home = perm === 'root' ? '/root' : `/home/${rec.username}`;
+  const home = perm === 'root' ? '/root' : `/home/${rec.loginName}`;
   await rewriteAuthUser(
     rec.loginName,
     makePasswdLine(rec.loginName, perm, userId, rec.username, home),
@@ -1044,6 +1073,41 @@ async function updateDesktopAppPosition(userId, appId, x, y) {
   return false;
 }
 
+/**
+ * 获取用户隐藏的应用列表（独立文件 hidden-apps.json）
+ * @param {number} userId - 用户ID
+ * @returns {Promise<string[]>} 隐藏的 .app 名数组（含后缀）
+ */
+async function getHiddenApps(userId) {
+  const hiddenPath = path.join(CONFIG_DIR, String(userId), 'hidden-apps.json');
+  try {
+    const data = JSON.parse(await fs.readFile(hiddenPath, 'utf8'));
+    return Array.isArray(data.hiddenApps) ? data.hiddenApps : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 设置/解除应用的隐藏状态
+ * @param {number} userId - 用户ID
+ * @param {string} appName - .app 名（如 com.pacman.app）
+ * @param {boolean} hidden - true=隐藏 / false=显示
+ */
+async function setHiddenApp(userId, appName, hidden) {
+  const userDir = await ensureUserDir(userId);
+  const hiddenPath = path.join(userDir, 'hidden-apps.json');
+  let list = await getHiddenApps(userId);
+  const name = String(appName || '').replace(/\.app$/i, '') + '.app';
+  if (hidden) {
+    if (!list.includes(name)) list.push(name);
+  } else {
+    list = list.filter((n) => n !== name);
+  }
+  await saveJSON(hiddenPath, { hiddenApps: list });
+  return list;
+}
+
 // 导出模块接口
 module.exports = {
   getUsers,
@@ -1065,6 +1129,7 @@ module.exports = {
   setBackground,
   setTheme,
   setAccentColor,
+  setTaskbarMode,
   setPermission,
   ensureUserDir,
   setLastLoginUserId,
@@ -1076,6 +1141,8 @@ module.exports = {
   removeDesktopApp,
   setDesktopBackground,
   updateDesktopAppPosition,
+  getHiddenApps,
+  setHiddenApp,
   AMSYS_ROOT,
   CONFIG_DIR,
   PASSWD_FILE,

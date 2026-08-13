@@ -1,0 +1,119 @@
+/* ============================================================
+   WinUI 风格 ComboBox（参考 WinUIonWeb）
+   配合 win-combo.js 使用；弹出层复用 winui-theme.css 的 .win-acrylic
+   ============================================================ */
+
+.win-combo {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 0 6px 12px;
+  border: 1px solid var(--ctrl-border-rest);
+  border-bottom-color: var(--ctrl-strong-stroke);
+  border-radius: var(--ControlCornerRadius);
+  background: var(--ctrl-fill-default);
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    border-color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-combo:hover {
+  background: var(--ctrl-fill-secondary);
+}
+
+.win-combo:active {
+  background: var(--ctrl-fill-tertiary);
+}
+
+.win-combo:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+.win-combo.is-disabled {
+  background: var(--ctrl-fill-disabled);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.win-combo-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.win-combo-chevron {
+  place-self: center;
+  display: flex;
+  color: var(--text-secondary);
+}
+
+.win-combo-chevron svg {
+  transition: transform var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-combo[aria-expanded="true"] .win-combo-chevron svg {
+  transform: rotate(180deg);
+}
+
+/* 弹出列表（acrylic） */
+.win-combo-popup {
+  position: fixed;
+  z-index: 2000;
+  padding: 4px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.win-combo-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--ContentControlThemeFontFamily);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  box-sizing: border-box;
+  outline: none;
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-combo-option.hover,
+.win-combo-option:hover {
+  background: var(--subtle-secondary);
+}
+
+.win-combo-option.selected {
+  background: var(--subtle-secondary);
+}
+
+.win-combo-pill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: 1.5px;
+  background: var(--accent-base);
+  opacity: 0;
+  transition: opacity var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-combo-option.selected .win-combo-pill {
+  opacity: 1;
+}

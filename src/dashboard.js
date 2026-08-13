@@ -41,7 +41,7 @@ let currentAccentColor = '#0078D4';
 async function initTheme() {
   try {
     const currentUserId = await getCurrentUserId();
-    if (!currentUserId) return;
+    if (currentUserId == null) return;
     
     const settings = await window.electronAPI.config.getSettings(currentUserId);
     if (settings) {
@@ -53,9 +53,36 @@ async function initTheme() {
         currentAccentColor = settings.accentColor;
         applyAccentColor(currentAccentColor);
       }
+      if (settings.taskbar) {
+        isTaskbarFloating = settings.taskbar !== 'docked';
+        applyTaskbarMode();
+      }
     }
   } catch (error) {
     console.error('Failed to load theme settings:', error);
+  }
+}
+
+/**
+ * 应用任务栏浮动/停靠形态
+ */
+function applyTaskbarMode() {
+  const taskbar = document.getElementById('taskbar');
+  if (!taskbar) return;
+  taskbar.classList.toggle('docked', !isTaskbarFloating);
+  taskbar.classList.toggle('floating', isTaskbarFloating);
+}
+
+/**
+ * 持久化任务栏模式到用户配置
+ */
+async function persistTaskbarMode() {
+  const userId = await getCurrentUserId();
+  if (userId == null) return;
+  try {
+    await window.electronAPI.config.setTaskbarMode(isTaskbarFloating ? 'floating' : 'docked', userId);
+  } catch (err) {
+    console.error('[Dashboard] 保存任务栏模式失败:', err);
   }
 }
 
@@ -203,7 +230,7 @@ async function removeDesktopApp(app) {
   try {
     if (!app || app.id === undefined) return;
     const userId = await getCurrentUserId();
-    if (!userId) return;
+    if (userId == null) return;
     await window.electronAPI.config.removeDesktopApp(userId, app.id);
     console.log('[Desktop] Removed app:', app.name);
     await refreshDesktop();
@@ -286,19 +313,15 @@ window.electronAPI.settings.onChange(async (change) => {
     case 'accentColor':
       currentAccentColor = change.value;
       applyAccentColor(currentAccentColor);
+      const uidAccent = await getCurrentUserId();
+      if (uidAccent) {
+        await window.electronAPI.config.setAccentColor(change.value, uidAccent);
+      }
       break;
     case 'taskbarMode':
       isTaskbarFloating = change.value;
-      const taskbar = document.getElementById('taskbar');
-      if (taskbar) {
-        if (isTaskbarFloating) {
-          taskbar.classList.remove('docked');
-          taskbar.classList.add('floating');
-        } else {
-          taskbar.classList.remove('floating');
-          taskbar.classList.add('docked');
-        }
-      }
+      applyTaskbarMode();
+      await persistTaskbarMode();
       break;
     case 'desktopBackground':
       if (change.value) {
@@ -388,7 +411,7 @@ function closePropertiesWindow() {
 async function getCurrentUserId() {
   try {
     const lastLoginUserId = await window.electronAPI.config.getLastLoginUserId();
-    if (lastLoginUserId) {
+    if (lastLoginUserId != null) {
       return lastLoginUserId;
     }
     const users = await window.electronAPI.config.getUsers();
@@ -403,7 +426,7 @@ async function getCurrentUserId() {
 async function loadDesktopBackground() {
   try {
     const currentUserId = await getCurrentUserId();
-    if (!currentUserId) return;
+    if (currentUserId == null) return;
     
     // 获取当前用户的桌面配置
     const desktopConfig = await window.electronAPI.config.getUserDesktop(currentUserId);
@@ -424,7 +447,7 @@ async function loadDesktopApps() {
   try {
     const currentUserId = await getCurrentUserId();
     console.log('[DesktopApps] Current user ID:', currentUserId);
-    if (!currentUserId) {
+    if (currentUserId == null) {
       console.log('[DesktopApps] No current user ID, returning');
       return;
     }
@@ -721,18 +744,10 @@ async function toggleTheme() {
 // 切换任务栏模式
 function toggleTaskbarMode() {
   console.log('toggleTaskbarMode called');
-  const taskbar = document.getElementById('taskbar');
-  if (taskbar) {
-    isTaskbarFloating = !isTaskbarFloating;
-    if (isTaskbarFloating) {
-      taskbar.classList.remove('docked');
-      taskbar.classList.add('floating');
-    } else {
-      taskbar.classList.remove('floating');
-      taskbar.classList.add('docked');
-    }
-    console.log('Taskbar mode changed to:', isTaskbarFloating ? 'floating' : 'docked');
-  }
+  isTaskbarFloating = !isTaskbarFloating;
+  applyTaskbarMode();
+  persistTaskbarMode();
+  console.log('Taskbar mode changed to:', isTaskbarFloating ? 'floating' : 'docked');
 }
 
 // 更新时间显示

@@ -822,7 +822,7 @@ netsh interface set interface name="WLAN" admin=enabled
 **用户需求**：
 > 接下来做账户界面：账户主页 = 头像 + 用户名 + 角色徽章【管理员】（或所有者/用户），
 > 下方“账户设置”三个入口：你的信息（个人资料/头像）、登录选项（密码）、
-> 其他账户（管理此电脑上的其他用户，仅对 sudo/root 开放）。
+> 高级管理（管理此电脑上的其他用户，仅对 sudo/root 开放）。
 
 **实现方案**：
 - settings.html 新增静态账户页 `<section data-page="accounts">`（复用 WinUI 卡片体系）：
@@ -847,7 +847,7 @@ netsh interface set interface name="WLAN" admin=enabled
   - 个人信息区：用户名（登录名）/ 用户编号（UID）/ 你的权限（角色徽章）
   - 全名输入框 + 【更改】；更改我的头像 + 【更改】；操作结果用内联状态提示
 - 全名修改走 `config.updateUser(userId, { nickname })`：新增 nickname 更新路径，
-  只改 passwd 字段5（全名）与 home 目录（`/home/{昵称}` 跟随重命名），登录名不变；
+  只改 passwd 字段5（全名），登录名与 home 目录不变（home 始终跟随登录名）；
   写回 passwd/shadow 后经 `syncUsersFromPasswdShadow()` 重建 users.json 与
   config.json login 块——保证 2 秒配置监听（`checkConfigChanges`）不会把改动覆盖掉
 - 头像修改走 `config.updateUser(userId, { photo })`（photo 仅存 config.json，
@@ -1044,6 +1044,274 @@ amys 侧如未修复 home 扫描编码，后续仍可能再生成，建议在 am
 
 **实测**（Z 序探针）：加 focus 置底后，桌面被激活（focus）与设置窗口关闭焦点回落两种
 场景，桌面 Z 序均稳定回到应用之下（rel=+358），且 `topmost=false`（非 WS_EX_TOPMOST）。
+
+### 27. 设置-账户-登录选项：修改密码 + 密码开关（写回 /etc/shadow md5）
+
+**用户需求**：
+> 登录选项增加修改密码输入框（当前密码/新密码/重复输入），并提供开启/关闭密码按钮
+> （空密码开关）；状态用绿/红显示“密码已开启/关闭”；修改方式为改写虚拟根
+> /etc/shadow 的 md5 字段。
+
+**实现方案**：
+- 登录选项卡片改为可展开面板（复用“你的信息”的 expander 模式）：
+  - 密码状态行：红/绿圆点 + “密码已开启/关闭”文字 + 【开启】/【关闭】按钮
+    （按钮靠右）；状态色用 `--system-success`/`--system-critical` 令牌
+  - “修改密码”区：输入当前密码 / 输入新密码 / 重复输入新密码 + 【修改】按钮，
+    密码框为 type=password
+- 新增 IPC `config:changePassword({ userId, nickname, currentPassword, newPassword,
+  verifyCurrent })`：需要校验时先用 `config.verifyUser`（按昵称匹配）核对当前密码，
+  再 `config.updateUser({ password })` 写回虚拟根 /etc/shadow 的 md5 字段
+  （空字符串 = 关闭密码）；返回错误码 `current_password_wrong` /
+  `invalid_password` / `update_failed`
+- 交互：
+  - 【修改】：本地校验两次新密码一致且非空 → 后端校验当前密码 → 成功清空输入并提示
+  - 【关闭】：直接置空密码（不要求当前密码）
+  - 【开启】：用“新密码/重复”两个字段开启，不一致本地拦截；未填写提示先输入新密码
+- `resolveAccount()` 新增 `hasPassword`（读 config.json login.password），设置页
+  据此渲染密码状态；preload 新增 `config.changePassword`
+
+**实测**：
+- config 层真机测试（临时用户）：旧密码校验、`updateUser({password})` 后 shadow 哈希
+  等于 `md5(新密码)`、新密码可登录且旧密码被拒、置空后 shadow 为空且空密码可登录、
+  清理干净——全部通过
+- 设置页 harness 8 项断言全通过：开启态绿点/文案/按钮、当前密码错误提示、修改成功
+  清空输入、关闭/开启切换与状态色、不一致本地拦截
+
+**改版（红框悬浮窗交互）**：
+- 密码操作全部改为**红色边框悬浮窗**（`pwd-dialog-overlay`，边框
+  `--system-critical` + 同色光晕），不再在面板内联输入框：
+  - 【关闭】：必须先在悬浮窗输入一次当前密码（`verifyCurrent:true`）
+  - 【开启】：悬浮窗只显示“新密码 + 重复”（`verifyCurrent:false`）
+  - “修改密码”入口改为与“你的信息”同款的卡片行（图标+标题+chevron，带分隔线），
+    仅在密码开启时显示；点击打开三字段悬浮窗（当前+新+重复）
+- 悬浮窗按模式切换标题与按钮文案（关闭/开启/修改），支持 ESC 关闭、Enter 快捷提交；
+  成功即关闭并刷新开关状态，失败在窗内提示
+- 实测（harness 12 项）：开启态入口可见性、三种模式的字段组合与标题、当前密码错误
+  不关窗、成功关窗并更新红绿状态、不一致本地拦截、ESC 关闭——全部通过
+
+**补充（显示密码按钮）**：
+- 三个密码输入框（当前/新/重复）内部右侧各加 WinUI 风格“眼睛”按钮
+  （`.pwd-reveal-btn`，SVG 眼睛/闭眼图标，32×26、subtle hover/pressed、focus 轮廓）：
+  点击切换 `type=password/text`，图标随之切换，`aria-label`/`aria-pressed` 同步，
+  各输入框独立切换互不影响
+- 实测（harness 6 项）：三框各有按钮、初始 password、显示后图标/aria 更新、
+  独立切换、再次点击恢复隐藏——全部通过
+
+### 28. 高级管理（其他用户增删改查）
+
+**用户需求**：账户页“其他账户”进入全新的“高级管理”页（← 返回账户页），列表展示
+所有用户（头像 + Nickname(username)），行内展开查看/内嵌编辑，删除需二次确认；
+新建用户走独立悬浮窗（不置顶）；权限仅 user/sudo；修改用户名联动 home 目录迁移。
+
+**实现方案**：
+- 设置页新增 `data-page="admin"` 子页面（不进左侧导航，SUB_PAGES 机制；子页面保持
+  父级“账户”高亮；离开时复位行状态）：头部 ←（返回账户页）+ 标题 + [+新建用户]
+- 用户列表：圆形头像 + 长格式名称；行尾 ✏️修改 / 🗑️删除（红色，当前用户与 root
+  禁用）；点击行展开显示 login 字段（用户名/用户编号/全名/权限 raw+中文/密码状态）；
+  点 ✏️ 进入编辑态（用户名/全名输入框 + 权限选择 + 保存/取消，root 权限锁定），
+  保存经 `config.updateUser`（支持 username 改登录名+home 迁移、nickname 改全名、
+  permi 改权限），失败在行内提示
+- 删除确认：按钮区替换为“是否确认删除？”+ ✓/✗；✗ 恢复，离开页面/收起/关窗默认取消
+- 密码：展开项内点击密码状态 → 复用红框密码悬浮窗的**管理员模式**
+  （`openPwdDialog('admin', target)`：无需当前密码，新密码+重复；对方已开启密码时
+  显示【关闭密码】按钮），成功后刷新列表
+- 新建用户独立窗口 `user-form.html/css/js`（不置顶、无边框、居中、X 关闭）：
+  用户名/全名/权限（仅 user/sudo）/密码状态（可展开可不设，带眼睛按钮）；
+  `usermgr:show-new` / `usermgr:create`（经 `config.addUser` 支持独立全名，
+  UID/GID 自动分配）/ `usermgr:close`；创建成功主进程推送 `admin:refresh`
+- config.js：`getUsers()` 增补 `loginName`/`hasPassword`；`addUser` 增 nickname 参数
+  （登录名与全名分离，home 跟随登录名）；`updateUser` 增重名预检（登录名/全名与
+  其他用户冲突即拒绝，避免改名改到一半失败）；home 目录语义统一为**跟随登录名**
+  （原 nickname 迁移 home 的行为废弃，setPermission 同步修正）
+
+**实测**：
+- config 层（临时用户）：addUser 独立全名/home 跟随登录名、getUsers 含 loginName/
+  hasPassword、重名（登录名/全名）拒绝、改名+全名+home 迁移、改权限、关密码后
+  hasPassword=false、清理——全部通过
+- 设置页 harness 13 项：页面导航/列表/长格式/删除禁用、展开字段、管理员密码窗
+  标题与字段组合、保存调用 changePassword(目标用户,免验证)、编辑态控件与保存调用
+  updateUser、删除确认替换/恢复/确认删除、新建按钮、← 返回——全部通过
+- 新建窗口 harness 8 项：主题、权限仅 user/sudo、密码区展开、眼睛按钮、空用户名/
+  密码不一致/重名提示、create 调用与关闭——全部通过
+
+**说明**：用户名（登录名）修改会同步迁移 home 目录并改写 passwd 字段1；root 恒为
+root（权限锁定、删除禁用），但允许改密码与全名。
+
+**补充（WinUI ComboBox 与红字警告）**：
+- 权限下拉弃用原生 `<select>`，新增可复用组件 `src/win-combo.js/css`
+  （`createWinComboBox(items, value, { onChange })`，settings 与 user-form 共用）：
+  32px 高、非对称边框、右侧 chevron（展开旋转）、acrylic 弹出列表（复用
+  `.win-acrylic`）、选项 36px、选中项左侧 3×16 强调色条；支持点击/外部点击关闭/
+  Esc/F4/Alt+Down 打开、方向键/Home/End/Enter 键盘导航、aria 语义；滚动/缩放时
+  关闭避免脱离锚点；root 编辑时禁用并锁定显示 root
+- 高级管理编辑态的用户名输入框下方新增**红字警告**：
+  “警告：修改用户名会改变登录名并迁移 home 目录，请谨慎操作”
+  （`.admin-username-warning`，`--system-critical`）
+- 实测：高级管理 8 项（无原生 select、警告文案、弹出层/选中/保存携带权限值、
+  方向键切换、root 锁定）+ 新建窗口 4 项（ComboBox、默认值、选项、创建携带权限）
+  全部通过
+
+**补充（新建窗口密码开关）**：密码区改为 WinUI ToggleSwitch（40×20 轨道 + 20×20
+滑块，开启时强调色填充、滑块右移，`role="switch"`）：开关关闭时密码区收起
+（grid 0fr→1fr 展开动画）并清空密码字段，提交密码恒为空串；开启才展开新密码/重复
+输入并参与校验。实测 7 项（初始收起、关闭态提交空密码、开启展开、不一致拦截、
+提交携带密码、关闭清空、键盘 Space 切换）全部通过。
+
+### 29. 主进程 EPIPE 保护（输出管道关闭）
+
+**现象**：测试期间主进程时不时弹“A JavaScript error occurred in the main process”，
+堆栈为 `EPIPE: broken pipe, write` + `console.log` + `Timeout.onTimeout`。
+
+**根因**：调试用的 Electron harness 脚本带 10 秒看门狗定时器；外层命令超时被杀后，
+孤儿 electron 进程仍存活，stdout 管道已关闭，定时器继续 `console.log` → EPIPE →
+重复弹错误框。属于测试脚本残留，与产品代码无关。
+
+**修复**：
+- 清理所有残留的 harness 孤儿进程（`taskkill /F /T`），真实应用进程不受影响
+- `src/index.js` 增加 `uncaughtException` 保护：仅忽略 `EPIPE/broken pipe`（控制台
+  启动后控制台被关闭等场景），其余未捕获异常移除监听后恢复 Electron 默认错误框，
+  不掩盖真实错误
+- 教训：测试 harness 的周期日志定时器要随进程退出清理，避免父进程被杀后成为孤儿
+  持续写已关闭的 stdout
+
+### 30. 个性化设置持久化补全（任务栏模式 + 登录背景）
+
+**用户反馈**：设置的个性化内容没有成功保存到 config；缺少登录页面背景设置功能，
+且没有字段存储任务栏浮动/停靠状态。
+
+**排查结论**：
+- `theme`（themebd）与桌面背景（desktop.json desktopbg）能保存；但
+  **accentColor 只改了 CSS 未落库**（dashboard 的 `applyAccentColor` 不写
+  `setAccentColor`），重启即丢
+- 任务栏浮动/停靠仅存内存，无字段
+- `profile.loginbg` 字段与 `setBackground` IPC 早已存在，但设置页没有 UI 入口
+
+**修复**：
+- config.json `profile` 新增 `taskbar: 'floating'|'docked'`（各默认 profile 模板同步）；
+  `getSettings` 返回 `taskbar`/`loginBackground`；新增 `setTaskbarMode()` 与
+  `config:setTaskbarMode` IPC、preload `setTaskbarMode`
+- dashboard：抽出 `applyTaskbarMode()`；`initTheme` 启动时恢复任务栏形态；
+  `settings:change` 的 accentColor 落库 `setAccentColor`、taskbarMode 落库
+  `setTaskbarMode`；`toggleTaskbarMode()`（任务栏工具栏按钮）同样持久化
+- 设置页“个性化→背景”拆为两张卡：**桌面背景**（原）与**登录背景**（新增，
+  预览/浏览/清除，持久化 `profile.loginbg`）；主进程 `settings:theme` 载荷新增
+  `loginBackground` 供预览；登录页本来就读 `profile.loginbg`，无需改动
+
+**实测**：
+- config 层：默认 taskbar=floating、setTaskbarMode 往返、setBackground 写入
+  loginbg 并落盘 config.json——通过
+- dashboard harness 7 项：启动恢复停靠/亮色/强调色，accentColor 与 taskbarMode
+  变更均调用落库 IPC——通过
+- 设置页 harness 5 项：登录背景卡片显示已有背景、选图/清除调用 setBackground
+  并更新预览——通过
+
+### 31. 锁屏纯白：背景简写重置 background-image
+
+**用户反馈**：锁屏界面没有成功加载图片，显示为纯白。
+
+**根因**：`lockscreen.js` 设置 `backgroundImage`（含 size/position/repeat）后又执行
+`document.body.style.background = 'transparent'`——CSS `background` 简写会把
+`background-image` 重置为 none，图片等于白设，露出 index.css 的白色底。
+
+**顺带修复**：登录页 `renderer.js` 的 `applyBackground()` 对已是 `file:///` 的地址
+（如设置页新保存的 `profile.loginbg`）会再拼一次 `file://` 变成双前缀失效；
+改为先归一化（已是 file:// 原样保留，Windows/斜杠路径补 `file:///`）。
+
+**实测**：锁屏 harness 3 项（背景图保留、cover 生效、用户名显示）通过；
+URL 归一化覆盖 file:///、Windows 反斜杠、斜杠路径三种输入。
+
+### 32. 应用页（已安装的应用：隐藏/卸载）
+
+**用户需求**：设置“应用”页 → “已安装的应用 >”子页，按 `/etc/apmlist` 列出已装应用，
+自动读图标，支持卸载；支持“隐藏”（不再进开始菜单，但设置页仍显示，可解除）；行内
+折叠式操作（参考高级管理）；系统应用用 `etc/{包名}/system.flag` 内容为 `system`
+区分；显示版本号。
+
+**实现方案**：
+- 数据源：`/etc/apmlist` 为权威（一行一个 `.app` 名）；版本读
+  `etc/{包名}/aminfo.ini` 的 `[package] version`；系统标记读
+  `etc/{包名}/system.flag`；图标复用 `app:getInfo` 的提取链路（抽出
+  `extractAppIcon()` 共享）
+- 隐藏状态存**新文件** `config/{uid}/hidden-apps.json`（`getHiddenApps`/
+  `setHiddenApp`，独立于 config.json）；开始菜单 `apps:listAll` 增加 userId 过滤
+  隐藏项（start-menu.js 传入 userId）
+- 新增 IPC：`apps:listInstalled(userId)`（含 name/icon/version/system/hidden）、
+  `apps:getHidden`、`apps:setHidden`、`apps:uninstall`（spawn
+  `root/bin/apm.exe uninstall <名>`，成功后清理所有用户 desktop.json 中指向该应用的
+  快捷方式）
+- 设置页：`apps` 静态页（入口行“已安装的应用 >”）+ `apps-installed` 子页
+  （← 返回应用页）；列表行 = 图标 + 名称（系统/已隐藏标签）+ 版本小字 + 右侧操作：
+  折叠时 ⋮，展开时滑入 [隐藏/显示][卸载][X 收起]（动画 167ms）；卸载为行内
+  “确认卸载？✓✗”替换（同高级管理），系统应用卸载按钮禁用；隐藏后仍显示并标注
+
+**实测**：
+- 真实数据解析：apmlist 5 项，版本（wps 1.2019.0 / pacman 1.0.3）与 system.flag
+  （pacman=system）全部正确
+- 设置页 harness 12 项：进入子页、名称/版本/标签、折叠 ⋮、展开三按钮、系统应用
+  禁用卸载、隐藏调用 setHidden+标签、卸载确认替换/恢复/确认、列表刷新、返回——通过
+- 隐藏落盘：hidden-apps.json 新建/读取/解除——通过
+
+**修正（第一轮反馈）**：
+- 点击整行不再展开控件——只有点行尾 **⋮** 才展开（隐藏/卸载/X），X 收起
+- 系统应用卸载“禁止”此前样式有 bug：`.installed-app-actions .admin-icon-btn.delete`
+  的红色规则优先级高于 `:disabled`，禁用按钮仍显示红色像可点；补
+  `:disabled` 灰色覆盖（`--text-disabled` + `not-allowed`），实测禁用态颜色/光标正确
+
+**修正（隐藏未真正生效）**：开始菜单应用列表 = `apps.listAll`（已过滤隐藏）+ 桌面
+快捷方式补全；隐藏的应用若在桌面上有快捷方式，会被第二段循环加回并排到末尾。
+`start-menu.js` 改为同时拉取 `apps.getHidden(userId)`，桌面快捷方式补全时同样按
+隐藏列表过滤。实测：隐藏的 pacman（含桌面快捷方式）完全不出现在开始菜单，未隐藏
+的 WPS/System-informer 正常显示。
+
+**补充（动态更新）**：开始菜单每次打开本就下发 `startmenu:refresh`；补上隐藏/卸载
+后的**即时广播**——`apps:setHidden` 与 `apps:uninstall` 成功后调用
+`notifyStartMenuRefresh()`（窗口存在且未加载中即发送 `startmenu:refresh`），打开的
+开始菜单立刻重载列表。实测：隐藏→pacman 立即消失、解除→恢复、卸载同理。
+
+**修正（第二轮反馈：隐藏不生效 + 眼睛图标卡死）**：
+- 眼睛卡死根因：`toggleHidden` 里 `app.hidden = !!res.hiddenApps || hidden`，
+  `!![]` 恒为 true，解除隐藏后状态仍是隐藏（一直显示“眼睛画条线”）；改为以返回
+  列表 `includes(appName)` 判定
+- 隐藏不彻底根因：隐藏只过滤了主程序（如 com.wps.app），开始菜单里同包的子应用
+  （word/ppt/excel.wps.app）仍会显示（文件夹拆开后逐个出现）；改为**按包隐藏**——
+  `apps:listAll` 与 start-menu 的 `isHidden` 均按“去掉前缀的包名”匹配，隐藏主程序
+  时整个包（含子应用与桌面快捷方式）一并隐藏
+- 实测：隐藏 WPS 后开始菜单只剩其余应用（主程序+子应用均消失）；眼睛按钮
+  隐藏⇄解除隐藏往返正常，图标与标签同步
+
+**修正（第三轮反馈：隐藏“没存到本地”）**：
+- 排查确认数据确有落盘：`{amsys_root}/etc/system/core/{uid}/hidden-apps.json`
+  （如 core/0 含 `com.wps.app`）；真实数据模拟 listAll 过滤（含子应用）也正确
+- 真正的风险是**用户 ID 分裂**：设置页用 `currentLoggedInUser`，开始菜单用
+  `lastLoginUserId`，两者不一致时写入与读取落在不同用户目录，表现为“没保存”
+- 修复：主进程新增 `resolveCurrentUserId()`（currentLoggedInUser → lastLogin →
+  users[0]），`apps:listAll/listInstalled/getHidden/setHidden` 统一用它解析，不再
+  信任渲染层传入的 userId，读写永远落在同一用户目录
+- 实测：未登录兜底链解析出 uid=0 并读到已保存的 `com.wps.app`——通过
+
+**修正（第四轮反馈：root 用户下隐藏/桌面右键/发送到桌面全挂）**：
+- 根因：root 的 UID 是 **0**，多处 `if (!userId)` / `if (!currentUserId)` /
+  `if (lastLoginUserId)` 把 0 当作“没有用户”：
+  - `dashboard.loadDesktopApps` 提前 return → 桌面容器不创建 → **桌面右键全死**
+  - `start-menu.sendToDesktop` 提前 return → **任何应用无法发送到桌面**
+  - `initTheme`/`loadDesktopBackground`/`persistTaskbarMode`/`removeDesktopApp`
+    同样对 root 失效（主题/背景不恢复、任务栏模式不保存）
+- 修复：上述判断全部改为 `== null` / `!= null`（0 合法放行），
+  dashboard.js 与 start-menu.js 的 `getCurrentUserId` 同步修正
+- 实证（真 config + 真文件 + 真渲染器复现，root 用户）：桌面容器创建与右键菜单、
+  开始菜单隐藏过滤（WPS/pacman 均隐藏）、右键菜单、发送到桌面调用
+  `addDesktopApp(uid=0)`——5 项全部通过；隐藏状态确认落盘 core/0/hidden-apps.json
+
+**修正（第五轮反馈：设置页读不到隐藏状态）**：
+- 根因：`apps:listAll` 与 `apps:listInstalled` 里 `const hidden = uid ? ... : []`
+  又是 uid=0 假值陷阱——root 用户永远拿到空隐藏列表，设置页图标不显示“已隐藏”，
+  开始菜单也不过滤（上一轮复现脚本是自写过滤逻辑，漏测了真实 handler 这行）
+- 修复：两处改为 `uid != null ? ... : []`；顺带把 `window:openDashboard` 的
+  `if (userId)` 改为 `if (userId != null)`，root 登录也会正确设置
+  `currentLoggedInUser`
+- 实测（真实逻辑复刻）：uid=0 读到 `["com.wps.app","com.pacman.app"]`，listAll
+  过滤掉二者，listInstalled 对二者标记 `hidden:true`——设置页与开始菜单一致生效；
+  root 登录 currentLoggedInUser 正确设置
 
 ## 三、待解决问题与未来方向
 

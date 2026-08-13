@@ -34,7 +34,7 @@ function hideMenu() {
 async function getCurrentUserId() {
   try {
     const lastLoginUserId = await window.electronAPI.config.getLastLoginUserId();
-    if (lastLoginUserId) {
+    if (lastLoginUserId != null) {
       return lastLoginUserId;
     }
     const users = await window.electronAPI.config.getUsers();
@@ -97,7 +97,7 @@ async function loadUserInfo(account) {
     try {
       const lastLoginUserId = await window.electronAPI.config.getLastLoginUserId();
       const users = await window.electronAPI.config.getUsers();
-      const user = (lastLoginUserId && users.find((u) => u.userid === lastLoginUserId)) || users[0];
+      const user = (lastLoginUserId != null && users.find((u) => u.userid === lastLoginUserId)) || users[0];
       if (user) {
         username = user.username;
         avatar = user.photo || null;
@@ -128,12 +128,21 @@ async function loadStartMenuApps() {
   try {
     closeFolderView();
     const userId = await getCurrentUserId();
-    const [desktopData, allAppsRes] = await Promise.all([
+    const [desktopData, allAppsRes, hiddenRes] = await Promise.all([
       window.electronAPI.config.getUserDesktop(userId),
-      window.electronAPI.apps.listAll().catch(() => ({ success: false, apps: [] })),
+      window.electronAPI.apps.listAll(userId).catch(() => ({ success: false, apps: [] })),
+      window.electronAPI.apps.getHidden(userId).catch(() => ({ success: false, hiddenApps: [] })),
     ]);
     const desktopApps = (desktopData && desktopData.desktopapp) || [];
     const systemApps = (allAppsRes && allAppsRes.apps) || [];
+    const hiddenApps = (hiddenRes && hiddenRes.hiddenApps) || [];
+    // 隐藏按“包”生效：com.wps.app 被隐藏时，word/ppt/excel.wps.app 等子应用一并隐藏
+    const hiddenPackageKeys = hiddenApps
+      .map((h) => String(h).replace(/\.app$/i, '').split('.').slice(1).join('.').toLowerCase())
+      .filter(Boolean);
+    const isHidden = (start) => hiddenApps.some(
+      (h) => h.toLowerCase() === `${String(start).replace(/\.app$/i, '')}.app`.toLowerCase()
+    ) || hiddenPackageKeys.includes(parseAppIdentity(start).packageName.toLowerCase());
     const appList = document.getElementById('start-menu-app-list');
 
     if (!appList) {
@@ -153,6 +162,8 @@ async function loadStartMenuApps() {
     }
     for (const app of desktopApps) {
       if (!app.start || seen.has(app.start)) continue;
+      // 桌面快捷方式补全同样过滤隐藏应用，避免隐藏后“移到末尾”
+      if (isHidden(app.start)) continue;
       seen.add(app.start);
       apps.push({ start: app.start, name: app.name, icon: app.icon || null });
     }
@@ -472,7 +483,7 @@ async function showStartMenuProperties(entry) {
 async function sendToDesktop(entry) {
   try {
     const userId = await getCurrentUserId();
-    if (!userId) return;
+    if (userId == null) return;
     const desktopData = await window.electronAPI.config.getUserDesktop(userId);
     const desktopApps = (desktopData && desktopData.desktopapp) || [];
     const pos = getNextDesktopPosition(desktopApps);

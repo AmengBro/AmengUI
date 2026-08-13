@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addUser: (username, password, photo) => ipcRenderer.invoke('config:addUser', username, password, photo),
     /** 更新用户信息 */
     updateUser: (userid, updates) => ipcRenderer.invoke('config:updateUser', userid, updates),
+    /** 修改密码（校验当前密码后写回 /etc/shadow md5 字段；空密码 = 关闭密码） */
+    changePassword: (payload) => ipcRenderer.invoke('config:changePassword', payload),
     /** 删除用户 */
     deleteUser: (userid) => ipcRenderer.invoke('config:deleteUser', userid),
     /** 设置背景图片 */
@@ -34,6 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setTheme: (theme, userId) => ipcRenderer.invoke('config:setTheme', theme, userId),
     /** 设置主题色 */
     setAccentColor: (color, userId) => ipcRenderer.invoke('config:setAccentColor', color, userId),
+    /** 设置任务栏模式（floating/docked） */
+    setTaskbarMode: (mode, userId) => ipcRenderer.invoke('config:setTaskbarMode', mode, userId),
     /** 保存最后登录的用户ID */
     setLastLoginUserId: (userId) => ipcRenderer.invoke('config:setLastLoginUserId', userId),
     /** 获取最后登录的用户ID */
@@ -158,8 +162,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // 应用列表 API
   apps: {
-    /** 列出 /usr/share/applications 下所有 .app 应用 */
-    listAll: () => ipcRenderer.invoke('apps:listAll')
+    /** 列出 /usr/share/applications 下所有 .app 应用（可传 userId 过滤隐藏） */
+    listAll: (userId) => ipcRenderer.invoke('apps:listAll', userId),
+    /** 列出已安装应用（/etc/apmlist 权威，含版本/系统标记/隐藏状态） */
+    listInstalled: (userId) => ipcRenderer.invoke('apps:listInstalled', userId),
+    /** 获取用户隐藏的应用列表 */
+    getHidden: (userId) => ipcRenderer.invoke('apps:getHidden', userId),
+    /** 设置/解除应用隐藏（user 维度，存 hidden-apps.json） */
+    setHidden: (userId, appName, hidden) => ipcRenderer.invoke('apps:setHidden', userId, appName, hidden),
+    /** 卸载应用（调用 apm uninstall，成功后清理桌面快捷方式） */
+    uninstall: (appName) => ipcRenderer.invoke('apps:uninstall', appName)
   },
   
   // 属性窗口 API
@@ -188,6 +200,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     windowAction: (action) => ipcRenderer.send('settings:windowAction', action),
     /** 获取设备名称与型号（带缓存） */
     getDeviceInfo: () => ipcRenderer.invoke('settings:getDeviceInfo')
+  },
+
+  // 高级管理（其他用户）API
+  admin: {
+    /** 监听“新建用户成功”后刷新列表 */
+    onRefresh: (callback) => {
+      ipcRenderer.on('admin:refresh', () => callback());
+    }
+  },
+
+  // 新建用户独立窗口 API
+  userForm: {
+    /** 打开新建用户窗口 */
+    show: () => ipcRenderer.invoke('usermgr:show-new'),
+    /** 提交创建用户 */
+    create: (payload) => ipcRenderer.invoke('usermgr:create', payload),
+    /** 关闭新建用户窗口 */
+    close: () => ipcRenderer.send('usermgr:close'),
+    /** 监听窗口加载后下发的主题 */
+    onTheme: (callback) => {
+      ipcRenderer.on('userform:theme', (event, data) => callback(data));
+    }
   },
 
   // 开始菜单浮层窗口 API
