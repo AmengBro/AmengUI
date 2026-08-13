@@ -1468,6 +1468,29 @@ function init() {
     btn.addEventListener('click', () => navigateTo('apps'));
   });
 
+  // 应用页：安装新软件（打开包管理器 pacman）
+  const installSoftwareRow = document.getElementById('row-install-software');
+  if (installSoftwareRow) {
+    const openPacman = async () => {
+      try {
+        const res = await window.electronAPI.app.launch('com.pacman.app');
+        if (!res || !res.success) {
+          alert(`打开包管理器失败：${(res && res.error) || '未知错误'}`);
+        }
+      } catch (err) {
+        console.error('[Apps] 打开包管理器失败:', err);
+        alert(`打开包管理器失败：${err.message || '未知错误'}`);
+      }
+    };
+    installSoftwareRow.addEventListener('click', openPacman);
+    installSoftwareRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openPacman();
+      }
+    });
+  }
+
   // 账户卡片
   document.getElementById('account-card').addEventListener('click', () => navigateTo('accounts'));
 

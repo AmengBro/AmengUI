@@ -1313,6 +1313,10 @@ URL 归一化覆盖 file:///、Windows 反斜杠、斜杠路径三种输入。
   过滤掉二者，listInstalled 对二者标记 `hidden:true`——设置页与开始菜单一致生效；
   root 登录 currentLoggedInUser 正确设置
 
+**补充（安装新软件入口）**：“应用”页新增“安装新软件”卡片行（下载图标 + 标题 +
+说明 + chevron，样式与“已安装的应用”一致），点击调 `app.launch('com.pacman.app')`
+打开包管理器，失败弹提示；支持键盘 Enter/Space。实测 3 项通过。
+
 ## 三、待解决问题与未来方向
 
 ### 已知不足
