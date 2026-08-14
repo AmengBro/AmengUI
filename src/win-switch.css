@@ -1,0 +1,81 @@
+/* ============================================================
+   WinUI ToggleSwitch（40x20 轨道 + 20x20 滑块）
+   ============================================================ */
+
+.win-switch {
+  position: relative;
+  width: 40px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.win-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: var(--subtle-secondary);
+  border: 1px solid var(--toggle-border);
+  box-sizing: border-box;
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    border-color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-switch[aria-checked="true"] .win-switch-track {
+  background: var(--accent-base);
+  border-color: transparent;
+}
+
+.win-switch-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ctrl-solid-fill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(0);
+  transition: transform var(--fast-duration) var(--fast-out-slow-in);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.win-switch[aria-checked="true"] .win-switch-thumb {
+  transform: translateX(20px);
+}
+
+.win-switch-thumb::after {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--toggle-thumb);
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    transform var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.win-switch[aria-checked="true"] .win-switch-thumb::after {
+  background: var(--toggle-on-thumb);
+}
+
+.win-switch:hover .win-switch-thumb::after {
+  transform: scale(1.15);
+}
+
+.win-switch:active .win-switch-thumb {
+  transform: translateX(1.5px);
+}
+
+.win-switch[aria-checked="true"]:active .win-switch-thumb {
+  transform: translateX(18.5px);
+}
+
+.win-switch:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}

@@ -386,6 +386,28 @@ namespace AmengAudio
             catch { return false; }
         }
 
+        /// <summary>
+        /// 对所有活动音频会话静音/取消静音（ISimpleAudioVolume），
+        /// 作为端点静音的双保险：部分驱动对端点 SetMute 不生效时仍可静音
+        /// </summary>
+        public static void MuteAllSessions(bool mute)
+        {
+            try
+            {
+                var handles = EnumerateSessionHandles();
+                foreach (var h in handles)
+                {
+                    try
+                    {
+                        Guid ctx = Guid.Empty;
+                        h.Volume.SetMute(mute, ref ctx);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
         public static string GetDeviceName(IMMDevice device)
         {
             try
@@ -435,12 +457,62 @@ namespace AmengAudio
             return list;
         }
 
+        public static List<AudioData> GetInputDevices(out string defaultId)
+        {
+            var list = new List<AudioData>();
+            defaultId = null;
+            try
+            {
+                var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+                IMMDevice defaultDevice;
+                if (enumerator.GetDefaultAudioEndpoint(EDataFlow.eCapture, ERole.eMultimedia, out defaultDevice) == 0)
+                {
+                    defaultDevice.GetId(out defaultId);
+                }
+                IMMDeviceCollection coll;
+                if (enumerator.EnumAudioEndpoints(EDataFlow.eCapture, DeviceState.Active, out coll) != 0) return list;
+                uint count;
+                coll.GetCount(out count);
+                for (uint i = 0; i < count; i++)
+                {
+                    IMMDevice device;
+                    if (coll.Item(i, out device) != 0) continue;
+                    string id; device.GetId(out id);
+                    DeviceState state; device.GetState(out state);
+                    list.Add(new AudioData
+                    {
+                        Id = id,
+                        Name = GetDeviceName(device),
+                        State = state.ToString(),
+                        IsDefault = defaultId != null && id == defaultId
+                    });
+                }
+            }
+            catch { }
+            return list;
+        }
+
         public static bool SetDefaultDevice(string id)
         {
             try
             {
                 if (string.IsNullOrEmpty(id)) return false;
                 var policy = (IPolicyConfig)(new CPolicyConfigClient());
+                policy.SetDefaultEndpoint(id, ERole.eConsole);
+                policy.SetDefaultEndpoint(id, ERole.eMultimedia);
+                policy.SetDefaultEndpoint(id, ERole.eCommunications);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        public static bool SetDefaultInputDevice(string id)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(id)) return false;
+                var policy = (IPolicyConfig)(new CPolicyConfigClient());
+                // 输入（采集）端点同样经 IPolicyConfig 设置三种角色
                 policy.SetDefaultEndpoint(id, ERole.eConsole);
                 policy.SetDefaultEndpoint(id, ERole.eMultimedia);
                 policy.SetDefaultEndpoint(id, ERole.eCommunications);
@@ -662,7 +734,7 @@ function Invoke-AudioCommand {
     [pscustomobject]@{
       success = $ok
       volume = [math]::Round($v * 100)
-      mute = $m
+      mute = [bool]$script:isMuted
       deviceName = $name
     }
   } elseif ($cmd -eq 'setVolume') {
@@ -670,6 +742,11 @@ function Invoke-AudioCommand {
     if ($pct -lt 0) { $pct = 0 }
     if ($pct -gt 100) { $pct = 100 }
     $ok = [AmengAudio.NativeAudio]::SetMasterVolume(($pct / 100.0))
+    if ($ok) {
+      # 记录程序设定音量；拖动音量视为解除静音（伪静音：音量归 0，拖动即恢复）
+      $script:lastVolume = $pct
+      $script:isMuted = $false
+    }
     if (-not $ok) {
       # 兜底：WScript.Shell 音量键（仅在不支持 Core Audio 的环境）
       try {
@@ -681,9 +758,28 @@ function Invoke-AudioCommand {
     }
     [pscustomobject]@{ success = $ok }
   } elseif ($cmd -eq 'setMute') {
-    $m = [bool]$cmdArgs[0]
-    $ok = [AmengAudio.NativeAudio]::SetMasterMute($m)
-    [pscustomobject]@{ success = $ok }
+    # 伪静音：端点/驱动 SetMute 实测不可靠，改为"音量归 0 / 恢复原音量"
+    $mute = [bool]$cmdArgs[0]
+    if ($mute) {
+      if (-not $script:isMuted) {
+        $v = 0.0; $mm = $false; $nn = ''
+        $got = [AmengAudio.NativeAudio]::GetMasterState([ref]$v, [ref]$mm, [ref]$nn)
+        if ($got) {
+          $cur = [math]::Round($v * 100)
+          if ($cur -gt 0) { $script:lastVolume = $cur }
+        }
+        if ($null -eq $script:lastVolume) { $script:lastVolume = 50 }
+        [AmengAudio.NativeAudio]::SetMasterVolume(0.0) | Out-Null
+        $script:isMuted = $true
+      }
+    } elseif ($script:isMuted) {
+      $restore = [int]$script:lastVolume
+      if ($restore -lt 0) { $restore = 0 }
+      if ($restore -gt 100) { $restore = 100 }
+      [AmengAudio.NativeAudio]::SetMasterVolume(($restore / 100.0)) | Out-Null
+      $script:isMuted = $false
+    }
+    [pscustomobject]@{ success = $true; muted = [bool]$script:isMuted }
   } elseif ($cmd -eq 'getDevices') {
     $def = ''
     $devices = [AmengAudio.NativeAudio]::GetDevices([ref]$def)
@@ -698,6 +794,21 @@ function Invoke-AudioCommand {
     [pscustomobject]@{ defaultId = $def; devices = $mapped }
   } elseif ($cmd -eq 'setDefaultDevice') {
     $ok = [AmengAudio.NativeAudio]::SetDefaultDevice([string]$cmdArgs[0])
+    [pscustomobject]@{ success = $ok }
+  } elseif ($cmd -eq 'getInputDevices') {
+    $def = ''
+    $devices = [AmengAudio.NativeAudio]::GetInputDevices([ref]$def)
+    $mapped = @($devices | ForEach-Object {
+      [pscustomobject]@{
+        id = $_.Id
+        name = $_.Name
+        state = $_.State
+        isDefault = $_.IsDefault
+      }
+    })
+    [pscustomobject]@{ defaultId = $def; devices = $mapped }
+  } elseif ($cmd -eq 'setDefaultInputDevice') {
+    $ok = [AmengAudio.NativeAudio]::SetDefaultInputDevice([string]$cmdArgs[0])
     [pscustomobject]@{ success = $ok }
   } elseif ($cmd -eq 'getSessions') {
     # 同一进程可能持有多个会话（如系统声音），按 PID 合并为一行
@@ -723,6 +834,9 @@ function Invoke-AudioCommand {
 }
 
 if ($Server) {
+  # 伪静音状态：静音时音量归 0，解除时恢复 lastVolume（服务端进程内跟踪）
+  $script:isMuted = $false
+  $script:lastVolume = $null
   while ($true) {
     $line = [Console]::In.ReadLine()
     if ($null -eq $line) { break }

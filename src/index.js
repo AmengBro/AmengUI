@@ -439,6 +439,19 @@ ipcMain.handle('config:setTaskbarMode', async (_, mode, userId) => {
   return await config.setTaskbarMode(mode, userId);
 });
 
+ipcMain.handle('config:setDisplayProfile', async (_, profile, userId) => {
+  const result = await config.setDisplayProfile(profile, userId);
+  // 即时把色温配置广播给桌面窗口应用
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.webContents.send('display:profile', profile);
+  }
+  return result;
+});
+
+ipcMain.handle('config:setNotificationPref', async (_, key, value, userId) => {
+  return await config.setNotificationPref(key, value, userId);
+});
+
 ipcMain.handle('config:setLastLoginUserId', async (_, userId) => {
   return await config.setLastLoginUserId(userId);
 });
@@ -1031,9 +1044,17 @@ async function openSettingsWindow(settingsData = {}) {
   const pushTheme = async () => {
     if (!settingsWindow || settingsWindow.isDestroyed()) return;
     let loginBackground = null;
+    let displayProfile = 'default';
+    let notifyApps = true;
+    let notifySystem = true;
+    let notifyDnd = false;
     try {
       const settings = await config.getSettings(account.userId);
       loginBackground = settings.loginBackground || null;
+      displayProfile = settings.displayProfile || 'default';
+      notifyApps = settings.notifyApps !== false;
+      notifySystem = settings.notifySystem !== false;
+      notifyDnd = !!settings.notifyDnd;
     } catch {}
     settingsWindow.webContents.send('settings:theme', {
       theme,
@@ -1041,6 +1062,10 @@ async function openSettingsWindow(settingsData = {}) {
       isTaskbarFloating,
       desktopBackground: settingsData.desktopBackground || null,
       loginBackground,
+      displayProfile,
+      notifyApps,
+      notifySystem,
+      notifyDnd,
       deviceName: os.hostname(),
       account,
     });
@@ -1191,6 +1216,156 @@ ipcMain.handle('usermgr:create', async (_, payload = {}) => {
     console.error('[usermgr:create]', err.message);
     return { success: false, code: 'error', message: err.message };
   }
+});
+
+// ==================== 存储（磁盘空间 / 快速清理） ====================
+
+// 磁盘信息缓存（30 秒）
+let drivesCache = null;
+let drivesCacheTime = 0;
+
+/**
+ * 解析虚拟根 /etc/fstab 的挂载映射：Windows 盘符 -> Unix 挂载点
+ * 格式：C:\  /media/c
+ * @returns {Promise<Object<string, string>>} { 'C': '/media/c', ... }
+ */
+async function readFstabMounts() {
+  const mounts = {};
+  try {
+    const fstabPath = path.join(config.AMSYS_ROOT, 'etc', 'fstab');
+    const text = await fs.readFile(fstabPath, 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) continue;
+      const parts = t.split(/\s+/);
+      if (parts.length < 2) continue;
+      const m = /^([A-Za-z]):\\?$/.exec(parts[0].trim());
+      if (m) mounts[m[1].toUpperCase()] = parts[1];
+    }
+  } catch (err) {
+    console.warn('[storage] 读取 fstab 失败:', err.message);
+  }
+  return mounts;
+}
+
+ipcMain.handle('storage:getDrives', async () => {
+  if (drivesCache && Date.now() - drivesCacheTime < 30000) {
+    return { success: true, drives: drivesCache };
+  }
+  try {
+    const mounts = await readFstabMounts();
+    const pwsh = await getPwshPath();
+    const psCmd = 'Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object { "{0}|{1}|{2}|{3}" -f $_.DeviceID,$_.VolumeName,$_.Size,$_.FreeSpace }';
+    const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+    const { stdout } = await execAsync(
+      `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+      { timeout: 10000, windowsHide: true, encoding: 'utf8' }
+    );
+    const drives = String(stdout || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [letter, label, sizeStr, freeStr] = line.split('|');
+        const size = Number(sizeStr) || 0;
+        const freeSpace = Number(freeStr) || 0;
+        return {
+          letter: letter || '',
+          label: label || '',
+          size,
+          freeSpace,
+          used: Math.max(0, size - freeSpace),
+          mount: mounts[String(letter || '').replace(':', '').toUpperCase()] || null,
+        };
+      })
+      .filter((d) => d.letter && d.size > 0);
+    drivesCache = drives;
+    drivesCacheTime = Date.now();
+    return { success: true, drives };
+  } catch (err) {
+    console.error('[storage:getDrives]', err.message);
+    return { success: false, error: err.message, drives: [] };
+  }
+});
+
+/**
+ * 递归统计目录大小（带文件数上限，避免超大临时目录卡死）
+ */
+async function dirSize(dir, budget = { files: 0, max: 80000 }) {
+  let total = 0;
+  const stack = [dir];
+  while (stack.length && budget.files < budget.max) {
+    const d = stack.pop();
+    let entries;
+    try {
+      entries = await fs.readdir(d, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (budget.files >= budget.max) return total;
+      budget.files++;
+      const p = path.join(d, e.name);
+      try {
+        if (e.isDirectory()) stack.push(p);
+        else total += (await fs.stat(p)).size;
+      } catch {}
+    }
+  }
+  return total;
+}
+
+ipcMain.handle('storage:getCleanupTargets', async () => {
+  const targets = [];
+  const candidates = [
+    { path: os.tmpdir(), label: '用户临时文件 (%TEMP%)' },
+    { path: path.join(config.AMSYS_ROOT, 'tmp'), label: '系统临时目录 (/tmp)' },
+  ];
+  for (const t of candidates) {
+    try {
+      await fs.access(t.path);
+      targets.push(t);
+    } catch {}
+  }
+  return { success: true, targets };
+});
+
+ipcMain.handle('storage:quickCleanup', async () => {
+  const candidates = [
+    os.tmpdir(),
+    path.join(config.AMSYS_ROOT, 'tmp'),
+  ];
+  const cleaned = [];
+  let freedBytes = 0;
+  for (const dir of candidates) {
+    try {
+      await fs.access(dir);
+    } catch {
+      continue;
+    }
+    let before = 0;
+    let entries = [];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const e of entries) {
+        const p = path.join(dir, e.name);
+        try {
+          if (e.isDirectory()) before += await dirSize(p);
+          else before += (await fs.stat(p)).size;
+        } catch {}
+      }
+      for (const e of entries) {
+        try {
+          await fs.rm(path.join(dir, e.name), { recursive: true, force: true });
+        } catch {}
+      }
+    } catch (err) {
+      console.warn('[storage:quickCleanup]', dir, err.message);
+    }
+    cleaned.push({ path: dir, freedBytes: before });
+    freedBytes += before;
+  }
+  return { success: true, freedBytes, cleaned };
 });
 
 // 设置变更事件
@@ -2542,6 +2717,181 @@ ipcMain.handle('system:setBrightness', async (_, brightness) => {
   try {
     const v = Math.max(0, Math.min(100, parseInt(brightness) || 0));
     const r = await sysServer.command('setBrightness', [v], 15000);
+    return { success: !!(r && r.success) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// 显示器列表（Electron screen + 刷新率 best-effort）
+let refreshRateCache = null;
+ipcMain.handle('system:getDisplays', async () => {
+  try {
+    const displays = screen.getAllDisplays().map((d) => ({
+      id: String(d.id),
+      primary: d.id === screen.getPrimaryDisplay().id,
+      label: `${d.size.width}×${d.size.height}`,
+      scaleFactor: d.scaleFactor,
+      x: d.bounds.x,
+      y: d.bounds.y,
+      refreshRate: null,
+    }));
+    // 刷新率经 pwsh 查询（缓存，失败不影响列表）
+    if (!refreshRateCache) {
+      try {
+        const pwsh = await getPwshPath();
+        const psCmd = '(Get-CimInstance Win32_VideoController | Where-Object { $_.CurrentRefreshRate -gt 0 } | Select-Object -First 1).CurrentRefreshRate';
+        const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+        const { stdout } = await execAsync(
+          `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+          { timeout: 6000, windowsHide: true, encoding: 'utf8' }
+        );
+        const rate = parseInt(String(stdout || '').trim(), 10);
+        if (!Number.isNaN(rate) && rate > 0) refreshRateCache = rate;
+      } catch {}
+    }
+    if (refreshRateCache) {
+      displays.forEach((d) => { d.refreshRate = refreshRateCache; });
+    }
+    return { success: true, displays };
+  } catch (err) {
+    console.error('[system:getDisplays]', err.message);
+    return { success: false, error: err.message, displays: [] };
+  }
+});
+
+// 夜间模式（注册表 bluelightreductionstate；PE 不支持，键缺失时自动创建）
+const NIGHT_MODE_REG =
+  'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CloudStore\\Store\\DefaultAccount\\Current\\default$windows.data.bluelightreductionstate';
+
+/**
+ * 检测是否运行在 Windows PE（SystemStartOptions 含 MININT）
+ */
+async function isWindowsPE() {
+  try {
+    const pwsh = await getPwshPath();
+    const psCmd = '((Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SystemStartOptions" -ErrorAction SilentlyContinue).SystemStartOptions -match "MININT")';
+    const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+    const { stdout } = await execAsync(
+      `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+      { timeout: 6000, windowsHide: true, encoding: 'utf8' }
+    );
+    return String(stdout || '').trim().toLowerCase() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 确保夜间模式注册表键存在（普通 Windows 首次使用前键不存在，需创建）
+ */
+async function ensureNightModeKey() {
+  try {
+    const pwsh = await getPwshPath();
+    const psCmd = `
+      $p = '${NIGHT_MODE_REG}'
+      try {
+        if (-not (Test-Path $p)) {
+          New-Item -Path $p -Force | Out-Null
+          New-ItemProperty -Path $p -Name Data -Value ([byte[]]@(0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00)) -PropertyType Binary -Force | Out-Null
+          New-ItemProperty -Path $p -Name Version -Value 1 -PropertyType DWord -Force | Out-Null
+        }
+        Write-Host 'ok'
+      } catch { Write-Host 'fail' }`;
+    const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+    const { stdout } = await execAsync(
+      `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+      { timeout: 8000, windowsHide: true, encoding: 'utf8' }
+    );
+    return String(stdout || '').trim() === 'ok';
+  } catch {
+    return false;
+  }
+}
+
+async function readNightMode() {
+  const pwsh = await getPwshPath();
+  const psCmd = `
+    $p = '${NIGHT_MODE_REG}'
+    try {
+      $v = Get-ItemProperty -Path $p -Name Data -ErrorAction Stop
+      if ($null -eq $v.Data) { Write-Host 'missing'; exit }
+      $b = [byte[]]$v.Data
+      if ($b.Length -ge 5) { Write-Host $(if ($b[4] -eq 1) { 'on' } else { 'off' }) }
+      else { Write-Host 'off' }
+    } catch { Write-Host 'missing' }`;
+  const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+  const { stdout } = await execAsync(
+    `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+    { timeout: 8000, windowsHide: true, encoding: 'utf8' }
+  );
+  const out = String(stdout || '').trim();
+  if (out === 'on') return { supported: true, enabled: true };
+  if (out === 'off') return { supported: true, enabled: false };
+  return { supported: false, enabled: false };
+}
+
+ipcMain.handle('system:getNightMode', async () => {
+  try {
+    if (await isWindowsPE()) {
+      return { supported: false, enabled: false, reason: 'pe' };
+    }
+    let state = await readNightMode();
+    if (!state.supported) {
+      // 键缺失：尝试创建后重读（普通 Windows 下可用）
+      if (await ensureNightModeKey()) {
+        state = await readNightMode();
+      }
+    }
+    return state;
+  } catch (err) {
+    return { supported: false, enabled: false, error: err.message };
+  }
+});
+
+ipcMain.handle('system:setNightMode', async (_, enabled) => {
+  try {
+    if (await isWindowsPE()) {
+      return { success: false, unsupported: true, reason: 'pe' };
+    }
+    const state = await readNightMode();
+    if (!state.supported && !(await ensureNightModeKey())) {
+      return { success: false, unsupported: true };
+    }
+    const pwsh = await getPwshPath();
+    const on = !!enabled ? '01' : '00';
+    const psCmd = `
+      $p = '${NIGHT_MODE_REG}'
+      try {
+        $v = Get-ItemProperty -Path $p -Name Data -ErrorAction Stop
+        $b = [byte[]]@(0x01,0x00,0x00,0x00,0x${on},0x00,0x00,0x00)
+        Set-ItemProperty -Path $p -Name Data -Value $b
+        Write-Host 'ok'
+      } catch { Write-Host 'fail' }`;
+    const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+    const { stdout } = await execAsync(
+      `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+      { timeout: 8000, windowsHide: true, encoding: 'utf8' }
+    );
+    return { success: String(stdout || '').trim() === 'ok' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// 输入音频设备（audio.ps1 扩展的 eCapture 枚举）
+ipcMain.handle('system:getInputDevices', async () => {
+  try {
+    const r = await audioServer.command('getInputDevices', [], 15000);
+    return { success: true, defaultId: (r && r.defaultId) || null, devices: (r && r.devices) || [] };
+  } catch (e) {
+    return { success: false, error: e.message, devices: [] };
+  }
+});
+
+ipcMain.handle('system:setDefaultInputDevice', async (_, id) => {
+  try {
+    const r = await audioServer.command('setDefaultInputDevice', [String(id || '')], 15000);
     return { success: !!(r && r.success) };
   } catch (e) {
     return { success: false, error: e.message };

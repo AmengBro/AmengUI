@@ -344,7 +344,10 @@ async function syncUsersFromPasswdShadow() {
       };
       const newConfig = config ? { ...config, login } : {
         login,
-        profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating' }
+        profile: {
+          loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating',
+          displayProfile: 'default', notifyApps: true, notifySystem: true, notifyDnd: false
+        }
       };
       const newContent = JSON.stringify(newConfig, null, 2);
       let oldContent = null;
@@ -609,7 +612,11 @@ async function getUserConfig(userId) {
       loginbg: null,
       themebd: 'dark',
       themecolor: '#0078D4',
-      taskbar: 'floating'
+      taskbar: 'floating',
+      displayProfile: 'default',
+      notifyApps: true,
+      notifySystem: true,
+      notifyDnd: false
     }
   };
   
@@ -647,7 +654,11 @@ async function getSettings(userId = null) {
       loginBackground: userConfig.profile.loginbg,
       theme: userConfig.profile.themebd,
       accentColor: userConfig.profile.themecolor,
-      taskbar: userConfig.profile.taskbar || 'floating'
+      taskbar: userConfig.profile.taskbar || 'floating',
+      displayProfile: userConfig.profile.displayProfile || 'default',
+      notifyApps: userConfig.profile.notifyApps !== false,
+      notifySystem: userConfig.profile.notifySystem !== false,
+      notifyDnd: !!userConfig.profile.notifyDnd
     };
   }
   
@@ -693,7 +704,10 @@ async function addUser(username, password = '', photo = null, permi = 'user', ni
   await ensureUserDir(uid);
   await saveJSON(getUserConfigPath(uid), {
     login: { userid: uid, username: nick, password: hash, photo, permi: perm },
-    profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating' }
+    profile: {
+      loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating',
+      displayProfile: 'default', notifyApps: true, notifySystem: true, notifyDnd: false
+    }
   });
 
   await syncUsersFromPasswdShadow();
@@ -787,7 +801,10 @@ async function updateUser(userId, updates) {
   const login = { userid: userId, username: nick, password: hash, photo, permi: perm };
   await saveJSON(getUserConfigPath(userId), config ? { ...config, login } : {
     login,
-    profile: { loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating' }
+    profile: {
+      loginbg: null, themebd: 'dark', themecolor: '#0078D4', taskbar: 'floating',
+      displayProfile: 'default', notifyApps: true, notifySystem: true, notifyDnd: false
+    }
   });
 
   await syncUsersFromPasswdShadow();
@@ -898,6 +915,33 @@ async function setTaskbarMode(mode, userId) {
   const userConfig = await getUserConfig(userId);
   userConfig.profile.taskbar = mode === 'docked' ? 'docked' : 'floating';
   await saveUserConfig(userId, userConfig);
+}
+
+/**
+ * 设置显示器配置文件（仅存储选择，实际应用为后续版本）
+ * @param {string} profile - default/vivid/eye-care/custom
+ * @param {number} userId - 用户ID
+ */
+async function setDisplayProfile(profile, userId) {
+  const valid = ['default', 'warm', 'cool'];
+  const userConfig = await getUserConfig(userId);
+  userConfig.profile.displayProfile = valid.includes(profile) ? profile : 'default';
+  await saveUserConfig(userId, userConfig);
+}
+
+/**
+ * 设置通知偏好（notifyApps / notifySystem / notifyDnd）
+ * @param {string} key - 偏好键
+ * @param {boolean} value - 开关值
+ * @param {number} userId - 用户ID
+ */
+async function setNotificationPref(key, value, userId) {
+  const allowed = ['notifyApps', 'notifySystem', 'notifyDnd'];
+  if (!allowed.includes(key)) return false;
+  const userConfig = await getUserConfig(userId);
+  userConfig.profile[key] = !!value;
+  await saveUserConfig(userId, userConfig);
+  return true;
 }
 
 /**
@@ -1130,6 +1174,8 @@ module.exports = {
   setTheme,
   setAccentColor,
   setTaskbarMode,
+  setDisplayProfile,
+  setNotificationPref,
   setPermission,
   ensureUserDir,
   setLastLoginUserId,

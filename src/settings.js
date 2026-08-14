@@ -82,7 +82,7 @@ const EMPTY_ICON =
   '</svg>';
 
 // 不在左侧导航中的子页面（高级管理、已安装的应用等）
-const SUB_PAGES = ['admin', 'apps-installed'];
+const SUB_PAGES = ['admin', 'apps-installed', 'storage', 'screen', 'sound', 'notify'];
 
 const BACK_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">' +
@@ -108,6 +108,10 @@ const state = {
   isTaskbarFloating: true,
   desktopBackground: null,
   loginBackground: null,
+  displayProfile: 'default',
+  notifyApps: true,
+  notifySystem: true,
+  notifyDnd: false,
   deviceName: '',
   deviceModel: '',
   account: { username: '用户', email: '', roleLabel: '本地账户', avatar: null },
@@ -234,6 +238,18 @@ function navigateTo(id) {
   }
   if (id === 'apps-installed') {
     loadInstalledApps();
+  }
+  if (id === 'storage') {
+    loadStorage();
+  }
+  if (id === 'screen') {
+    loadScreen();
+  }
+  if (id === 'sound') {
+    loadSound();
+  }
+  if (id === 'notify') {
+    loadNotify();
   }
   document.getElementById('content').scrollTop = 0;
 }
@@ -1362,6 +1378,431 @@ async function doUninstall(app) {
 }
 
 /* ============================================================
+   存储：磁盘空间 / 快速清理
+   ============================================================ */
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = bytes;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+async function loadStorage() {
+  const drivesEl = document.getElementById('storage-drives');
+  if (!drivesEl) return;
+  drivesEl.innerHTML = '<div class="empty-desc" style="padding:16px 0">正在读取磁盘信息…</div>';
+  try {
+    const res = await window.electronAPI.storage.getDrives();
+    renderDrives((res && res.drives) || []);
+  } catch (err) {
+    console.error('[Storage] 读取磁盘失败:', err);
+    drivesEl.innerHTML = '<div class="empty-desc" style="padding:16px 0">读取磁盘信息失败</div>';
+  }
+}
+
+function renderDrives(drives) {
+  const el = document.getElementById('storage-drives');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!drives.length) {
+    el.innerHTML = '<div class="empty-desc" style="padding:16px 0">未检测到磁盘</div>';
+    return;
+  }
+  drives.forEach((d) => {
+    const row = document.createElement('div');
+    row.className = 'storage-drive';
+
+    const icon = document.createElement('span');
+    icon.className = 'storage-drive-icon';
+    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 18H4V4h16v16zM6 7h12v2H6V7zm0 4h12v2H6v-2zm0 4h8v2H6v-2z"/></svg>';
+
+    const info = document.createElement('div');
+    info.className = 'storage-drive-info';
+    const letter = document.createElement('div');
+    letter.className = 'storage-drive-letter';
+    // 优先显示虚拟根挂载点（如 /media/c），无映射时退回盘符
+    letter.textContent = d.mount || d.letter;
+    const label = document.createElement('div');
+    label.className = 'storage-drive-label';
+    label.textContent = d.mount
+      ? `${d.letter} ${d.label || '本地磁盘'}`
+      : (d.label || '本地磁盘');
+    info.appendChild(letter);
+    info.appendChild(label);
+
+    const barWrap = document.createElement('div');
+    barWrap.className = 'storage-drive-bar-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'storage-drive-bar';
+    const pct = d.size > 0 ? (d.used / d.size) * 100 : 0;
+    bar.style.width = `${Math.min(100, pct)}%`;
+    if (pct >= 90) bar.classList.add('full');
+    else if (pct >= 70) bar.classList.add('high');
+    barWrap.appendChild(bar);
+
+    const text = document.createElement('div');
+    text.className = 'storage-drive-text';
+    text.textContent = `${formatBytes(d.freeSpace)} 可用 · 共 ${formatBytes(d.size)}`;
+
+    row.appendChild(icon);
+    row.appendChild(info);
+    row.appendChild(barWrap);
+    row.appendChild(text);
+    el.appendChild(row);
+  });
+}
+
+async function runQuickCleanup() {
+  const btn = document.getElementById('btn-quick-clean');
+  const status = document.getElementById('cleanup-status');
+  if (!btn || !status) return;
+  btn.disabled = true;
+  status.textContent = '正在清理…';
+  status.className = 'cleanup-status';
+  try {
+    const res = await window.electronAPI.storage.quickCleanup();
+    if (res && res.success) {
+      status.textContent = `已释放 ${formatBytes(res.freedBytes)}`;
+      status.className = 'cleanup-status success';
+      window.electronAPI.storage.getDrives().then((r) => renderDrives((r && r.drives) || []));
+    } else {
+      status.textContent = '清理失败';
+      status.className = 'cleanup-status error';
+    }
+  } catch (err) {
+    console.error('[Storage] 快速清理失败:', err);
+    status.textContent = '清理失败';
+    status.className = 'cleanup-status error';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadCleanupAdvice() {
+  const list = document.getElementById('cleanup-advice-list');
+  if (!list) return;
+  try {
+    const res = await window.electronAPI.storage.getCleanupTargets();
+    const targets = (res && res.targets) || [];
+    list.innerHTML = '';
+    if (!targets.length) {
+      list.innerHTML = '<div class="cleanup-target"><span class="cleanup-target-path">没有可清理的临时目录</span></div>';
+      return;
+    }
+    targets.forEach((t) => {
+      const row = document.createElement('div');
+      row.className = 'cleanup-target';
+      const pathEl = document.createElement('span');
+      pathEl.className = 'cleanup-target-path';
+      pathEl.textContent = t.path;
+      const labelEl = document.createElement('span');
+      labelEl.className = 'cleanup-target-label';
+      labelEl.textContent = t.label;
+      row.appendChild(pathEl);
+      row.appendChild(labelEl);
+      list.appendChild(row);
+    });
+  } catch (err) {
+    console.error('[Storage] 读取清理建议失败:', err);
+  }
+}
+
+/* ============================================================
+   屏幕 / 声音 / 通知
+   ============================================================ */
+const DISPLAY_PROFILE_OPTIONS = [
+  { value: 'default', label: '默认' },
+  { value: 'warm', label: '暖光' },
+  { value: 'cool', label: '冷光' },
+];
+
+const VOLUME_ON_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>';
+const VOLUME_OFF_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>';
+
+const MONITOR_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>';
+
+function bindWinSlider(sliderId, valueId, onCommit) {
+  const slider = document.getElementById(sliderId);
+  const valueEl = document.getElementById(valueId);
+  if (!slider || !valueEl) return null;
+  slider.addEventListener('input', () => { valueEl.textContent = `${slider.value}%`; });
+  slider.addEventListener('change', () => {
+    const v = parseInt(slider.value, 10);
+    valueEl.textContent = `${v}%`;
+    if (onCommit) onCommit(v);
+  });
+  return {
+    set(v) {
+      slider.value = v;
+      valueEl.textContent = `${v}%`;
+    },
+  };
+}
+
+async function loadScreen() {
+  // 显示器列表
+  const displaysEl = document.getElementById('screen-displays');
+  displaysEl.innerHTML = '<div class="empty-desc" style="padding:16px 0">正在读取显示器信息…</div>';
+  try {
+    const res = await window.electronAPI.system.getDisplays();
+    renderDisplays((res && res.displays) || []);
+  } catch (err) {
+    console.error('[Screen] 读取显示器失败:', err);
+    displaysEl.innerHTML = '<div class="empty-desc" style="padding:16px 0">读取显示器信息失败</div>';
+  }
+
+  // 亮度（能力探测，PE 无 WMI 亮度时隐藏）
+  const brightnessCard = document.getElementById('brightness-card');
+  const brightnessHint = document.getElementById('brightness-hint');
+  try {
+    const caps = await window.electronAPI.system.getCapabilities();
+    const supported = !!(caps && (caps.brightness || caps.isLaptop));
+    brightnessCard.classList.toggle('hidden', !supported);
+    brightnessHint.classList.toggle('hidden', supported);
+    if (supported) {
+      const slider = bindWinSlider('brightness-slider', 'brightness-value', (v) => {
+        window.electronAPI.system.setBrightness(v).catch(() => {});
+      });
+      const r = await window.electronAPI.system.getBrightness();
+      if (r && r.success && typeof r.brightness === 'number' && r.brightness >= 0) slider.set(r.brightness);
+    }
+  } catch (err) {
+    brightnessCard.classList.add('hidden');
+    brightnessHint.classList.remove('hidden');
+  }
+
+  // 夜间模式（注册表不可用时置灰）
+  const nightHost = document.getElementById('night-switch-host');
+  nightHost.innerHTML = '';
+  let nightSw = createWinSwitch({ checked: false, ariaLabel: '夜间模式' });
+  try {
+    const r = await window.electronAPI.system.getNightMode();
+    if (r && r.supported) {
+      nightSw.setChecked(!!r.enabled);
+      nightSw.el.addEventListener('click', () => {
+        window.electronAPI.system.setNightMode(nightSw.checked);
+      });
+    } else {
+      nightSw.el.disabled = true;
+    }
+  } catch (err) {
+    nightSw.el.disabled = true;
+  }
+  nightHost.appendChild(nightSw.el);
+
+  // 显示器配置文件
+  const profileHost = document.getElementById('display-profile-host');
+  profileHost.innerHTML = '';
+  const profileCombo = createWinComboBox(DISPLAY_PROFILE_OPTIONS, state.displayProfile, {
+    ariaLabel: '显示器配置文件',
+    onChange: (v) => {
+      state.displayProfile = v;
+      window.electronAPI.config.setDisplayProfile(v, state.account.userId);
+    },
+  });
+  profileHost.appendChild(profileCombo.el);
+}
+
+function renderDisplays(displays) {
+  const el = document.getElementById('screen-displays');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!displays.length) {
+    el.innerHTML = '<div class="empty-desc" style="padding:16px 0">未检测到显示器</div>';
+    return;
+  }
+  displays.forEach((d, i) => {
+    const row = document.createElement('div');
+    row.className = 'screen-display';
+    const icon = document.createElement('span');
+    icon.className = 'screen-display-icon';
+    icon.innerHTML = MONITOR_ICON;
+    const info = document.createElement('div');
+    info.className = 'screen-display-info';
+    const name = document.createElement('div');
+    name.className = 'screen-display-name';
+    name.textContent = d.primary ? `显示器 ${i + 1}（主）` : `显示器 ${i + 1}`;
+    const desc = document.createElement('div');
+    desc.className = 'screen-display-desc';
+    const scale = Math.round((d.scaleFactor || 1) * 100);
+    desc.textContent = `${d.label} · ${scale}%${d.refreshRate ? ` · ${d.refreshRate}Hz` : ''}`;
+    info.appendChild(name);
+    info.appendChild(desc);
+    row.appendChild(icon);
+    row.appendChild(info);
+    el.appendChild(row);
+  });
+}
+
+async function loadSound() {
+  // 主音量
+  const hint = document.getElementById('volume-hint');
+  const volumeSlider = document.getElementById('volume-slider');
+  const muteBtn = document.getElementById('btn-volume-mute');
+  try {
+    const r = await window.electronAPI.system.getVolume();
+    if (r && r.success && r.volume >= 0) {
+      hint.classList.add('hidden');
+      const slider = bindWinSlider('volume-slider', 'volume-value', (v) => {
+        window.electronAPI.system.setVolume(v);
+      });
+      slider.set(r.volume);
+      muteBtn.classList.toggle('muted', !!r.mute);
+      muteBtn.innerHTML = r.mute ? VOLUME_OFF_ICON : VOLUME_ON_ICON;
+      muteBtn.title = r.mute ? '取消静音' : '静音';
+      muteBtn.addEventListener('click', async () => {
+        const next = !muteBtn.classList.contains('muted');
+        const res = await window.electronAPI.system.setMute(next);
+        if (res && res.success) {
+          muteBtn.classList.toggle('muted', next);
+          muteBtn.innerHTML = next ? VOLUME_OFF_ICON : VOLUME_ON_ICON;
+          muteBtn.title = next ? '取消静音' : '静音';
+        }
+      });
+    } else {
+      hint.classList.remove('hidden');
+      volumeSlider.disabled = true;
+      muteBtn.disabled = true;
+    }
+  } catch (err) {
+    hint.classList.remove('hidden');
+    volumeSlider.disabled = true;
+    muteBtn.disabled = true;
+  }
+
+  // 输出 / 输入设备
+  await renderDeviceCombo(
+    'output-device-host',
+    () => window.electronAPI.system.getAudioDevices(),
+    (id) => window.electronAPI.system.setDefaultAudioDevice(id)
+  );
+  await renderDeviceCombo(
+    'input-device-host',
+    () => window.electronAPI.system.getInputDevices(),
+    (id) => window.electronAPI.system.setDefaultInputDevice(id)
+  );
+
+  // 声音设备（音量合成器）
+  await renderSessions();
+}
+
+async function renderDeviceCombo(hostId, fetchDevices, commit) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  host.innerHTML = '';
+  try {
+    const res = await fetchDevices();
+    const devices = (res && res.devices) || [];
+    if (!devices.length) {
+      host.innerHTML = '<div class="section-hint">无可用设备</div>';
+      return;
+    }
+    const combo = createWinComboBox(
+      devices.map((d) => ({ value: d.id, label: d.name })),
+      (res && res.defaultId) || (devices[0] && devices[0].id),
+      { onChange: (id) => commit(id) }
+    );
+    host.appendChild(combo.el);
+  } catch (err) {
+    host.innerHTML = '<div class="section-hint">设备查询失败</div>';
+  }
+}
+
+async function renderSessions() {
+  const list = document.getElementById('sound-sessions');
+  const hint = document.getElementById('sessions-hint');
+  if (!list) return;
+  list.innerHTML = '';
+  try {
+    const res = await window.electronAPI.system.getAudioSessions();
+    const sessions = (res && res.sessions) || [];
+    hint.classList.toggle('hidden', sessions.length > 0);
+    sessions.forEach((s) => list.appendChild(createSessionRow(s)));
+  } catch (err) {
+    hint.classList.remove('hidden');
+  }
+}
+
+function createSessionRow(s) {
+  const row = document.createElement('div');
+  row.className = 'session-row';
+
+  const icon = document.createElement('span');
+  icon.className = 'session-icon';
+  icon.innerHTML = s.iconData
+    ? `<img src="${s.iconData}" alt="" style="width:24px;height:24px;border-radius:6px;object-fit:cover">`
+    : '<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>';
+
+  const name = document.createElement('span');
+  name.className = 'session-name';
+  name.textContent = s.name || `进程 ${s.pid}`;
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.className = 'win-slider';
+  slider.min = 0;
+  slider.max = 100;
+  slider.value = s.volume || 0;
+  slider.setAttribute('aria-label', `${s.name || '会话'} 音量`);
+
+  const value = document.createElement('span');
+  value.className = 'session-value';
+  value.textContent = `${s.volume || 0}%`;
+  slider.addEventListener('input', () => { value.textContent = `${slider.value}%`; });
+  slider.addEventListener('change', () => {
+    window.electronAPI.system.setSessionVolume(s.pid, parseInt(slider.value, 10));
+  });
+
+  const muteBtn = document.createElement('button');
+  muteBtn.type = 'button';
+  muteBtn.className = 'session-mute' + (s.mute ? ' muted' : '');
+  muteBtn.title = s.mute ? '取消静音' : '静音';
+  muteBtn.innerHTML = s.mute ? VOLUME_OFF_ICON : VOLUME_ON_ICON;
+  muteBtn.addEventListener('click', async () => {
+    const next = !muteBtn.classList.contains('muted');
+    const res = await window.electronAPI.system.setSessionMute(s.pid, next);
+    if (res && res.success) {
+      muteBtn.classList.toggle('muted', next);
+      muteBtn.title = next ? '取消静音' : '静音';
+      muteBtn.innerHTML = next ? VOLUME_OFF_ICON : VOLUME_ON_ICON;
+    }
+  });
+
+  row.appendChild(icon);
+  row.appendChild(name);
+  row.appendChild(slider);
+  row.appendChild(value);
+  row.appendChild(muteBtn);
+  return row;
+}
+
+async function loadNotify() {
+  [
+    ['notify-apps-host', 'notifyApps', '应用通知'],
+    ['notify-system-host', 'notifySystem', '系统通知'],
+    ['notify-dnd-host', 'notifyDnd', '请勿打扰'],
+  ].forEach(([hostId, key, label]) => {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = '';
+    const sw = createWinSwitch({
+      checked: !!state[key],
+      ariaLabel: label,
+      onChange: (checked) => {
+        state[key] = checked;
+        window.electronAPI.config.setNotificationPref(key, checked, state.account.userId);
+      },
+    });
+    host.appendChild(sw.el);
+  });
+}
+
+/* ============================================================
    窗口控制
    ============================================================ */
 function setupWindowControls() {
@@ -1491,6 +1932,59 @@ function init() {
     });
   }
 
+  // 系统页：存储入口 + 返回
+  const storageRow = document.getElementById('row-storage');
+  if (storageRow) {
+    const openStorage = () => navigateTo('storage');
+    storageRow.addEventListener('click', openStorage);
+    storageRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openStorage();
+      }
+    });
+  }
+  document.querySelectorAll('[data-back-system]').forEach((btn) => {
+    btn.addEventListener('click', () => navigateTo('system'));
+  });
+
+  // 系统页：屏幕 / 声音 / 通知入口
+  [['row-screen', 'screen'], ['row-sound', 'sound'], ['row-notify', 'notify']].forEach(([rowId, pageId]) => {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const openPage = () => navigateTo(pageId);
+    row.addEventListener('click', openPage);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openPage();
+      }
+    });
+  });
+
+  // 存储：快速清理 + 清理建议展开
+  const quickCleanBtn = document.getElementById('btn-quick-clean');
+  if (quickCleanBtn) {
+    quickCleanBtn.addEventListener('click', runQuickCleanup);
+  }
+  const adviceRow = document.getElementById('row-cleanup-advice');
+  const adviceExpander = document.getElementById('cleanup-advice-expander');
+  if (adviceRow && adviceExpander) {
+    const toggleAdvice = () => {
+      const open = adviceExpander.classList.toggle('open');
+      adviceRow.classList.toggle('expanded', open);
+      adviceRow.setAttribute('aria-expanded', String(open));
+      if (open) loadCleanupAdvice();
+    };
+    adviceRow.addEventListener('click', toggleAdvice);
+    adviceRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleAdvice();
+      }
+    });
+  }
+
   // 账户卡片
   document.getElementById('account-card').addEventListener('click', () => navigateTo('accounts'));
 
@@ -1597,6 +2091,10 @@ function init() {
       state.loginBackground = data.loginBackground || null;
       applyLoginBgPreview();
     }
+    if (data.displayProfile !== undefined) state.displayProfile = data.displayProfile || 'default';
+    if (data.notifyApps !== undefined) state.notifyApps = data.notifyApps !== false;
+    if (data.notifySystem !== undefined) state.notifySystem = data.notifySystem !== false;
+    if (data.notifyDnd !== undefined) state.notifyDnd = !!data.notifyDnd;
     if (data.deviceName) state.deviceName = data.deviceName;
     if (data.account) {
       state.account = { ...state.account, ...data.account };

@@ -1155,6 +1155,329 @@ body {
   }
 }
 
+/* ============================================================
+   存储（磁盘空间 / 快速清理）
+   ============================================================ */
+.storage-drives {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.storage-drive {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+}
+
+.storage-drive-icon {
+  flex: 0 0 26px;
+  display: flex;
+  color: var(--text-secondary);
+}
+
+.storage-drive-info {
+  flex: 0 0 108px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.storage-drive-letter {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.storage-drive-label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.storage-drive-bar-wrap {
+  flex: 1;
+  min-width: 60px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--subtle-secondary);
+  overflow: hidden;
+}
+
+.storage-drive-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent-base);
+  transition: width var(--normal-duration) var(--fast-out-slow-in);
+}
+
+.storage-drive-bar.high {
+  background: var(--system-caution);
+}
+
+.storage-drive-bar.full {
+  background: var(--system-critical);
+}
+
+.storage-drive-text {
+  flex: 0 0 auto;
+  min-width: 120px;
+  text-align: right;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.cleanup-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.cleanup-status {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+}
+
+.cleanup-status.success {
+  color: var(--system-success);
+}
+
+.cleanup-status.error {
+  color: var(--system-critical);
+}
+
+.cleanup-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.cleanup-target-path {
+  color: var(--text-primary);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.cleanup-target-label {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   屏幕 / 声音 / 通知
+   ============================================================ */
+.screen-displays {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.screen-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+}
+
+.screen-display-icon {
+  flex: 0 0 26px;
+  display: flex;
+  color: var(--text-secondary);
+}
+
+.screen-display-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.screen-display-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screen-display-desc {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* WinUI 风格滑块（原生 range 增强） */
+.win-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 60px;
+  height: 24px;
+  margin: 0 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.win-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ctrl-strong-fill);
+}
+
+.win-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: var(--ctrl-solid-fill);
+  border: 1px solid var(--ctrl-border);
+  border-bottom-color: var(--ctrl-border-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.win-slider:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.win-slider:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.brightness-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brightness-row .win-btn.muted {
+  color: var(--system-critical);
+}
+
+.slider-value {
+  flex: 0 0 44px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.section-hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-tertiary);
+  margin-top: 8px;
+}
+
+.switch-host,
+.combo-host {
+  flex-shrink: 0;
+}
+
+.combo-host {
+  min-width: 200px;
+}
+
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: 8px;
+}
+
+.session-icon {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.session-name {
+  flex: 0 0 140px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-row .win-slider {
+  flex: 1;
+}
+
+.session-value {
+  flex: 0 0 40px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.session-mute {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--ControlCornerRadius);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--fast-duration) var(--fast-out-slow-in),
+    color var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.session-mute:hover {
+  background: var(--subtle-secondary);
+  color: var(--text-primary);
+}
+
+.session-mute.muted {
+  color: var(--system-critical);
+}
+
 /* 推荐设置卡片 */
 .reco-card {
   background: var(--card-bg);

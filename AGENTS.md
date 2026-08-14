@@ -1317,6 +1317,100 @@ URL 归一化覆盖 file:///、Windows 反斜杠、斜杠路径三种输入。
 说明 + chevron，样式与“已安装的应用”一致），点击调 `app.launch('com.pacman.app')`
 打开包管理器，失败弹提示；支持键盘 Enter/Space。实测 3 项通过。
 
+### 33. 设置-系统-存储：磁盘空间 + 快速清理
+
+**用户需求**：设置 > 系统 > 存储，显示每个盘符剩余空间并提供“快速清理”；
+按 Windows 磁盘管理方式列出（盘符+卷标+用量条+剩余/总计），兼容性好。
+
+**实现方案**：
+- 系统页新增“存储 >”入口行（同“已安装的应用”卡片样式），进入存储子页
+  （`data-page="storage"`，← 返回系统页）
+- 磁盘列表：主进程 `storage:getDrives` 经 pwsh `Win32_LogicalDisk`
+  （DriveType=3 固定盘）取盘符/卷标/总容量/剩余空间，30 秒缓存；渲染为
+  磁盘图标 + 盘符（卷标）+ 用量条（使用率，≥70% 橙色、≥90% 红色）+ 
+  “X 可用 · 共 Y”文案
+- 快速清理：`storage:quickCleanup` 清理 `%TEMP%` 与 amsys `/tmp` 的临时文件
+  （Node fs.rm 递归，锁定文件跳过，统计释放字节，目录大小扫描带 8 万文件上限防卡死），
+  完成后状态显示“已释放 X MB”并刷新磁盘列表
+- 清理建议：可展开行，列出两个可清理目标路径与说明（`storage:getCleanupTargets`）
+- 实测：真实 pwsh 查询输出 C:/D:/I: 三盘正确；设置页 harness 7 项（进入/盘符卷标/
+  用量条/文案/清理释放量/建议展开/返回）全部通过
+
+**补充（虚拟挂载点显示）**：按用户要求，磁盘主标签改为虚拟根的 fstab 挂载点——
+主进程 `storage:getDrives` 解析 `{amsys_root}/etc/fstab`（`C:\  /media/c` 格式，
+`readFstabMounts()` 返回盘符→挂载点映射）并附加到每个磁盘；渲染时优先显示
+`/media/c` 这类挂载点，副行显示 `C: Windows`（盘符+卷标），无映射的磁盘退回盘符。
+实测：真实 fstab 解析出 C/D/I → /media/c,d,i；harness 7 项（含挂载点主显示、
+无映射回退、副行盘符卷标）全部通过。
+
+### 34. 设置-系统：屏幕 / 声音 / 通知（含 PE 兼容）
+
+**用户需求**：系统菜单新增屏幕、声音、通知三个功能组，先出 ASCII 计划（已归档
+`settings-system-plan.md`），实现时考虑 Windows PE 环境兼容性。
+
+**实现方案**：
+- 系统页新增三个入口行（同“存储”样式）→ 三个子页（`screen|sound|notify`，← 返回
+  系统页）；`SUB_PAGES` 注册；共享组件新增 `win-switch.js/css`
+  （WinUI ToggleSwitch 工厂）与 WinUI 风格滑块（原生 range 增强）
+- **屏幕**：显示器列表（`system:getDisplays`：Electron `screen` 分辨率/缩放 + pwsh
+  刷新率缓存）；亮度（复用 getBrightness/setBrightness，按能力探测
+  `brightness||isLaptop` 显隐）；夜间模式（新 `system:getNightMode/setNightMode`，
+  注册表 bluelightreductionstate，键缺失返回 unsupported 置灰）；显示器配置文件
+  （`config:setDisplayProfile` + `profile.displayProfile`，本期仅存储）
+- **声音**：主音量滑块+静音（复用）；输出设备 ComboBox（复用）；**输入设备**
+  （audio.ps1 新增 `GetInputDevices/SetDefaultInputDevice`，eCapture 枚举 +
+  IPolicyConfig 设默认采集端点，新 IPC）；声音设备合成器（复用 getAudioSessions/
+  setSessionVolume/setSessionMute，会话行=图标/名称/滑块/静音）
+- **通知**：`profile.notifyApps/notifySystem/notifyDnd` 持久化 +
+  `config:setNotificationPref`；三个 ToggleSwitch 回显与切换即存（通知中心为后续
+  独立功能）
+- **PE 兼容**：所有新 IPC 带 try/catch + 能力降级——夜间模式注册表缺失置灰、亮度
+  无 WMI 隐藏、音频无服务时音量/设备区提示“不可用”，不引入第三方库
+
+**实测**：
+- 设置页 harness 10 项：屏幕页渲染/夜间切换/配置保存、声音页音量/输出/输入/合成器
+  渲染与各操作 IPC、通知页三开关回显与持久化——全部通过
+- audio.ps1 集成实跑：capabilities/getDevices/getInputDevices 正常，麦克风阵列枚举
+  成功；夜间模式本机注册表缺失 → 正确返回 unsupported（降级路径验证）
+- config 持久化：displayProfile/notify* 落盘 config.json 往返通过
+
+**修复（音量静音无效果 + 亮度无法调节）**：
+- **亮度（真 bug）**：sys.ps1 的 `Set-BrightnessValue` 用
+  `(Get-WmiObject ...).WmiSetBrightness(...)`，PowerShell 7 下返回反序列化对象、
+  方法不可调（报 `does not contain a method named 'WmiSetBrightness'`），
+  控制中心与设置页亮度调节全部失效；先改 `Invoke-WmiMethod`（返回成功但仍不生效，
+  实测亮度不变），最终改用 **`Invoke-CimMethod` + 命名参数
+  `@{ Timeout = 1; Brightness = $v }`** 才真正改变亮度（90→70→60→恢复实测通过）
+- **静音**：后端 setMute 端点级正常（getVolume mute 往返一致），但用户实听仍不静音；
+  疑为驱动对端点 SetMute 不生效。双保险：`setMute` 命令在端点静音后追加
+  `MuteAllSessions`（枚举活动会话逐个 ISimpleAudioVolume.SetMute），实测主端点 +
+  全部 5 个会话同时静音/恢复，通过；“真实 preload + 真实音频服务 + 设置页”全链路
+  按钮测试（图标翻转、服务端状态同步）此前已通过
+- 亮度 UI 方向：设置页/控制中心打开时读取系统当前亮度，现在 set 真正生效后
+  双向同步成立
+
+**伪静音方案（用户建议，最终采用）**：端点/会话静音实测用户端仍不静音，
+改为“音量归 0”实现：服务端进程内跟踪 `$script:isMuted` / `$script:lastVolume`——
+静音=保存当前音量并 `SetMasterVolume(0)`，解除=恢复 lastVolume；`getVolume` 的
+`mute` 改用服务端跟踪值（不再依赖 COM 端点 mute 标志）；拖动音量视为解除静音。
+实测：50→静音(0,mute=true)→解除恢复 50；设 40→静音→解除恢复 40；
+静音中拖动到 60 自动解除。两端（设置/控制中心）共用同一服务，一并生效。
+
+**夜间模式与显示器配置文件（第三轮反馈）**：
+- 夜间模式开不了根因：CloudStore 键缺失（用户从未在 Windows 设置里开过夜灯）。
+  修复：`getNightMode/setNightMode` 先做 **PE 检测**（`SystemStartOptions` 含
+  `MININT` 即 PE，返回 unsupported 置灰——PE 没有夜灯服务，写注册表也不会变色），
+  非 PE 时键缺失自动创建（Data+Version）再读写；实测 off→on→off 往返正常
+- 配置文件改为 **默认/暖光/冷光**（`displayProfile: default|warm|cool`），并实现
+  真实效果：桌面窗口增加全屏色温滤镜层 `#display-tint`（multiply 混合，
+  warm=rgba(255,150,70,.16)、cool=rgba(70,140,255,.16)、default=隐藏），
+  启动时从配置应用，`config:setDisplayProfile` 保存后广播 `display:profile`
+  即时生效——**应用层实现，PE 环境同样有效**
+- 回答 PE 兼容性：**系统级夜灯 PE 不支持**（无服务/设置中心），故置灰；
+  暖光/冷光是应用自身滤镜，任何 Windows（含 PE）都可用
+- 实测：配置项仅三档、选暖光调用 setDisplayProfile(warm)；桌面滤镜 warm 显示
+  rgba(255,150,70,.16)、切 cool 生效、切 default 隐藏——全部通过
+
 ## 三、待解决问题与未来方向
 
 ### 已知不足

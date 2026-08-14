@@ -860,7 +860,12 @@ function Set-BrightnessValue {
   if ($v -lt 0) { $v = 0 }
   if ($v -gt 100) { $v = 100 }
   try {
-    (Get-WmiObject -Namespace root\WMI -Class WmiMonitorBrightnessMethods -ErrorAction Stop).WmiSetBrightness(1, $v)
+    # 实测：Invoke-WmiMethod 返回成功但不生效（亮度不变）；
+    # Invoke-CimMethod + 命名参数（Timeout/Brightness）才能真正改变亮度
+    $b = Get-CimInstance -Namespace root\WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop
+    if ($null -eq $b) { throw 'brightness methods unavailable' }
+    Invoke-CimMethod -InputObject $b -MethodName WmiSetBrightness `
+      -Arguments @{ Timeout = 1; Brightness = $v } | Out-Null
     return [pscustomobject]@{ success = $true }
   } catch {
     return [pscustomobject]@{ success = $false; error = $_.Exception.Message }

@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setAccentColor: (color, userId) => ipcRenderer.invoke('config:setAccentColor', color, userId),
     /** 设置任务栏模式（floating/docked） */
     setTaskbarMode: (mode, userId) => ipcRenderer.invoke('config:setTaskbarMode', mode, userId),
+    /** 设置显示器配置文件 */
+    setDisplayProfile: (profile, userId) => ipcRenderer.invoke('config:setDisplayProfile', profile, userId),
+    /** 设置通知偏好（notifyApps/notifySystem/notifyDnd） */
+    setNotificationPref: (key, value, userId) => ipcRenderer.invoke('config:setNotificationPref', key, value, userId),
     /** 保存最后登录的用户ID */
     setLastLoginUserId: (userId) => ipcRenderer.invoke('config:setLastLoginUserId', userId),
     /** 获取最后登录的用户ID */
@@ -78,6 +82,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getBrightness: () => ipcRenderer.invoke('system:getBrightness'),
     /** 设置屏幕亮度 */
     setBrightness: (brightness) => ipcRenderer.invoke('system:setBrightness', brightness),
+    /** 获取显示器列表（分辨率/缩放/刷新率） */
+    getDisplays: () => ipcRenderer.invoke('system:getDisplays'),
+    /** 获取夜间模式状态（unsupported=true 表示当前环境不支持） */
+    getNightMode: () => ipcRenderer.invoke('system:getNightMode'),
+    /** 设置夜间模式 */
+    setNightMode: (enabled) => ipcRenderer.invoke('system:setNightMode', enabled),
+    /** 获取输入（采集）音频设备 */
+    getInputDevices: () => ipcRenderer.invoke('system:getInputDevices'),
+    /** 设置默认输入音频设备 */
+    setDefaultInputDevice: (id) => ipcRenderer.invoke('system:setDefaultInputDevice', id),
     /** 获取输出设备列表 */
     getAudioDevices: () => ipcRenderer.invoke('system:getAudioDevices'),
     /** 设置默认输出设备 */
@@ -128,6 +142,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     forgetWifi: (ssid) => ipcRenderer.invoke('system:forgetWifi', ssid),
     /** 获取系统能力（PE 兼容性探测） */
     getCapabilities: () => ipcRenderer.invoke('system:getCapabilities')
+  },
+
+  // 存储 API（磁盘空间 / 快速清理）
+  storage: {
+    /** 获取 Windows 磁盘列表（盘符/卷标/总容量/剩余空间） */
+    getDrives: () => ipcRenderer.invoke('storage:getDrives'),
+    /** 获取可清理的临时目录列表 */
+    getCleanupTargets: () => ipcRenderer.invoke('storage:getCleanupTargets'),
+    /** 快速清理临时文件，返回释放的字节数 */
+    quickCleanup: () => ipcRenderer.invoke('storage:quickCleanup')
   },
   
   // 文件系统操作 API
@@ -269,6 +293,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 监听桌面刷新请求（开始菜单发送到桌面后触发） */
     onRefresh: (callback) => {
       ipcRenderer.on('desktop:refresh', () => callback());
+    },
+    /** 监听色温配置（暖光/冷光/默认）变更 */
+    onDisplayProfile: (callback) => {
+      ipcRenderer.on('display:profile', (event, profile) => callback(profile));
     }
   },
   

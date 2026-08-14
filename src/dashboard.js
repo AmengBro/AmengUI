@@ -57,9 +57,36 @@ async function initTheme() {
         isTaskbarFloating = settings.taskbar !== 'docked';
         applyTaskbarMode();
       }
+      if (settings.displayProfile) {
+        applyDisplayProfile(settings.displayProfile);
+      }
     }
   } catch (error) {
     console.error('Failed to load theme settings:', error);
+  }
+}
+
+/**
+ * 应用色温配置（应用层滤镜，PE 环境同样有效）
+ * warm=暖光 / cool=冷光 / 其他=默认
+ */
+function applyDisplayProfile(profile) {
+  let el = document.getElementById('display-tint');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'display-tint';
+    el.style.cssText = 'position: fixed; inset: 0; z-index: 99999; pointer-events: none; mix-blend-mode: multiply; display: none;';
+    document.body.appendChild(el);
+  }
+  if (profile === 'warm') {
+    el.style.display = 'block';
+    el.style.background = 'rgba(255, 150, 70, 0.16)';
+  } else if (profile === 'cool') {
+    el.style.display = 'block';
+    el.style.background = 'rgba(70, 140, 255, 0.16)';
+  } else {
+    el.style.display = 'none';
+    el.style.background = 'transparent';
   }
 }
 
@@ -863,6 +890,9 @@ function bindFloatingMenuEvents() {
   // 开始菜单“发送到桌面”后刷新桌面网格
   window.electronAPI.desktop.onRefresh(() => {
     refreshDesktop();
+  });
+  window.electronAPI.desktop.onDisplayProfile((profile) => {
+    applyDisplayProfile(profile);
   });
 }
 
