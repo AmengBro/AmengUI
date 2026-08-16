@@ -2966,9 +2966,22 @@ ipcMain.handle('system:scanWifi', async () => {
   }
 });
 
-ipcMain.handle('system:connectWifi', async (_, ssid, password) => {
+ipcMain.handle('system:connectWifi', async (_, ssid, password, hidden) => {
   try {
-    return await sysServer.command('wifiConnect', [String(ssid || ''), String(password || '')], 20000);
+    // hidden：连接隐藏 SSID 网络时生成的配置文件带 nonBroadcast 标记
+    return await sysServer.command(
+      'wifiConnect',
+      [String(ssid || ''), String(password || ''), !!hidden],
+      20000
+    );
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getWifiKnownNetworks', async () => {
+  try {
+    return await sysServer.command('wifiKnownNetworks', [], 20000);
   } catch (e) {
     return { success: false, error: e.message };
   }

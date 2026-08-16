@@ -118,10 +118,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setWifiPower: (enabled) => ipcRenderer.invoke('system:setWifiPower', enabled),
     /** 扫描可用 WiFi */
     scanWifi: () => ipcRenderer.invoke('system:scanWifi'),
-    /** 连接 WiFi（无密码传空串） */
-    connectWifi: (ssid, password) => ipcRenderer.invoke('system:connectWifi', ssid, password),
+    /** 连接 WiFi（无密码传空串；hidden=true 用于连接不广播 SSID 的隐藏网络） */
+    connectWifi: (ssid, password, hidden) => ipcRenderer.invoke('system:connectWifi', ssid, password, hidden),
     /** 断开当前 WiFi */
     disconnectWifi: () => ipcRenderer.invoke('system:disconnectWifi'),
+    /** 获取已知网络（已保存的 WiFi 配置文件列表） */
+    getWifiKnownNetworks: () => ipcRenderer.invoke('system:getWifiKnownNetworks'),
     /** 获取已配对蓝牙设备 */
     getBluetoothDevices: () => ipcRenderer.invoke('system:getBluetoothDevices'),
     /** 发现未配对蓝牙设备（查询约 4~10 秒） */

@@ -1411,6 +1411,71 @@ URL 归一化覆盖 file:///、Windows 反斜杠、斜杠路径三种输入。
 - 实测：配置项仅三档、选暖光调用 setDisplayProfile(warm)；桌面滤镜 warm 显示
   rgba(255,150,70,.16)、切 cool 生效、切 default 隐藏——全部通过
 
+### 35. 用户增删改与 amsys 模型对齐（被删用户“复活”根因）
+
+**用户反馈**：被删掉的用户每次重启程序都回来了；质疑同步方式或根本没改 passwd/shadow。
+
+**根因（架构级）**：
+- 应用确实在改 `/etc/passwd` + `/etc/shadow`（删除时过滤对应 loginName 行），
+  但 **amsys（C++ shell）才是认证文件的真正主人**：它会用标准 Unix 格式
+  （字段2=`x`）从 `/home` 目录 + `etc/users.toml` **重建 passwd**，把应用的
+  修改（删除、字段2=权限）整体覆盖
+- 应用删除用户只清了 passwd/shadow 行与 config 目录，**没删 home 目录**，
+  amsys 扫描 `/home` 看到残留目录就把用户重新写回 passwd（实测 `测试中文目录`
+  的 home 残留导致其复活）；`users.toml` 应用也从没维护，权限同样不持久
+
+**修复（对齐 amsys 模型：home + users.toml 为持久依据，passwd/shadow 为派生）**：
+- `addUser`：创建 `/home/{登录名}` + 写 users.toml 权限块（否则新建用户重启即失）
+- `deleteUser`：删除 passwd/shadow 行 + **home 目录** + users.toml 块 + config 目录
+- `updateUser` / `setPermission`：权限变更写 users.toml；登录名变更迁移 users.toml 块
+- `readPasswdShadow`：权限优先读 users.toml（登录名/昵称），字段2 仅作回退
+  （amsys 重写为 `x` 时不再误读）
+- `syncUsersFromPasswdShadow`：迁移——旧 users.json 中非 user 权限在 passwd 字段2
+  失效时回填 users.toml，避免 amsys 重写后权限丢失
+- 新增工具：`readTomlPermissions/setUserTomlPermission/removeUserTomlBlock`
+
+**实测**：新建→home+toml 生成；setPermission→toml 同步且读取正确；模拟 amsys 重写
+（字段2=x + toml 条目丢失）→ sync 从旧 users.json 恢复 sudo；删除→
+passwd/home/toml/config 全清——全链路 PASS。并已修复现场数据：users.toml 补齐
+rot/root2/Ad 的 sudo、清理孤儿 permission 行、正式删除复活用户 1011（含其 home）。
+**结论**：改的确实是 passwd+shadow，但被 amsys 重建覆盖；现在增删改落在 amsys
+真正读取的 home + users.toml 上，重启不再复活。
+
+### 36. 设置-网络和Internet：WLAN 主界面 + 管理已知网络
+
+**用户需求**：完善“网络和Internet”界面——WLAN 开关与连接状态卡、可展开的
+可用网络列表（信号/加密/已连接/断开）、隐藏 SSID 的“其他网络（密码）/（公开）”
+入口（手动输入 SSID 连接）、以及“管理已知网络”子页（搜索/排序/筛选/添加/
+忘记已保存网络）。
+
+**实现方案**：
+- 后端 `sys.ps1`：
+  - 新增 `wifiKnownNetworks`：解析 `netsh wlan show profiles` 返回已存配置
+    列表（按 netsh 输出序，作为“偏好”排序默认值）
+  - `Build-WifiProfileXml` 增加 `$nonBroadcast` 参数：隐藏网络生成的配置文件
+    带 `<nonBroadcast>true</nonBroadcast>`，否则部分驱动无法关联不广播的 SSID
+  - `Invoke-WifiConnect` 增加 `$hidden` 第三参并透传到 XML；同时修复历史 bug——
+    空密码不再直接返回 `password_required`，而是生成 open 配置连接公开网络
+    （此前 open 分支存在但不可达，控制中心连接无配置公开网络必然失败）
+- IPC 链路：`system:connectWifi` 增加 `hidden` 第三参；新增
+  `system:getWifiKnownNetworks`；preload 暴露 `connectWifi(ssid,password,hidden)`、
+  `getWifiKnownNetworks()`
+- 设置 UI（settings.html/js/css）：
+  - 网络页：WLAN WinUI 开关（乐观更新，无网卡/硬件关闭时禁用）、状态描述、
+    当前连接属性卡（点击弹属性对话框）、可展开的可用网络列表（信号格/加密图标/
+    已连接/连接/断开）、其他网络（密码/公开）两个入口（弹窗输入 SSID+密码，
+    hidden=true 连接）、管理已知网络入口
+  - 管理已知网络子页（SUB_PAGES 新增 `network-known`）：搜索框、排序（偏好/名称）、
+    筛选（全部/已连接）两个 WinUI ComboBox、添加新网络行（SSID+密码+隐藏网络
+    勾选+橙色“添加网络”按钮）、已存网络列表（行内“忘记”按钮 + 确认对话框）
+- 新增三个通用对话框：网络属性（props）、忘记确认（confirm）、连接其他网络
+
+**实测**：`wifiKnownNetworks` CLI 返回 52 个本机已存配置；XML 生成含
+nonBroadcast 的加密/公开两分支正确；stub preload + Electron harness 全链路
+断言通过（网络页渲染、6 个可用网络、已连接行“断开”、密码/公开对话框显隐、
+已知网络搜索过滤、忘记确认、属性对话框、添加网络成功/空 SSID 校验），
+渲染进程零报错；`wifiConnect` 走已有 profile 分支不受 hidden 参数影响。
+
 ## 三、待解决问题与未来方向
 
 ### 已知不足

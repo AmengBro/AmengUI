@@ -1082,13 +1082,17 @@ function Invoke-WifiScan {
 }
 
 function Build-WifiProfileXml {
-  param($escapedSsid, $escapedPass, $authKind)
+  param($escapedSsid, $escapedPass, $authKind, $nonBroadcast = $false)
+  # 隐藏网络（SSID 不广播）需要 nonBroadcast 标记，否则部分驱动无法关联
+  $ssidCfg = "<SSIDConfig><SSID><name>$escapedSsid</name>"
+  if ($nonBroadcast) { $ssidCfg += '<nonBroadcast>true</nonBroadcast>' }
+  $ssidCfg += '</SSID></SSIDConfig>'
   if ([string]::IsNullOrEmpty($escapedPass)) {
     return @"
 <?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
   <name>$escapedSsid</name>
-  <SSIDConfig><SSID><name>$escapedSsid</name></SSID></SSIDConfig>
+  $ssidCfg
   <connectionType>ESS</connectionType>
   <connectionMode>manual</connectionMode>
   <MSM><security><authEncryption><authentication>open</authentication><encryption>none</encryption><useOneX>false</useOneX></authEncryption></security></MSM>
@@ -1099,7 +1103,7 @@ function Build-WifiProfileXml {
 <?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
   <name>$escapedSsid</name>
-  <SSIDConfig><SSID><name>$escapedSsid</name></SSID></SSIDConfig>
+  $ssidCfg
   <connectionType>ESS</connectionType>
   <connectionMode>manual</connectionMode>
   <MSM><security>
@@ -1111,7 +1115,7 @@ function Build-WifiProfileXml {
 }
 
 function Invoke-WifiConnect {
-  param($ssid, $password)
+  param($ssid, $password, $hidden = $false)
   $ssid = [string]$ssid
   if ([string]::IsNullOrEmpty($ssid)) { return [pscustomobject]@{ success = $false; error = 'no_ssid' } }
   $escapedSsid = [System.Security.SecurityElement]::Escape($ssid)
@@ -1152,13 +1156,11 @@ function Invoke-WifiConnect {
     return [pscustomobject]@{ success = $false; usingProfile = $true; error = ($connectOut -join ' ') }
   }
 
-  # 需要新建配置文件（需要密码）
-  if ([string]::IsNullOrEmpty($password)) {
-    return [pscustomobject]@{ success = $false; error = 'password_required' }
-  }
+  # 新建配置文件：密码可空（空密码 = 公开网络，Build-WifiProfileXml 生成 open 配置）
   $escapedPass = [System.Security.SecurityElement]::Escape($password)
   $authKind = 'WPA2PSK'
-  $xml = Build-WifiProfileXml $escapedSsid $escapedPass $authKind
+  if ([string]::IsNullOrEmpty($password)) { $authKind = 'open' }
+  $xml = Build-WifiProfileXml $escapedSsid $escapedPass $authKind ([bool]$hidden)
   $xmlPath = Join-Path $env:TEMP ('amengui_wifi_' + [guid]::NewGuid().ToString('N') + '.xml')
   try {
     [System.IO.File]::WriteAllText($xmlPath, $xml, [System.Text.Encoding]::UTF8)
@@ -1195,6 +1197,21 @@ function Invoke-WifiForget {
     return [pscustomobject]@{ success = $true }
   }
   return [pscustomobject]@{ success = $false; error = $text }
+}
+
+function Invoke-WifiKnownNetworks {
+  # 已保存的已知网络（netsh wlan show profiles），按 netsh 输出顺序（偏好排序默认值）
+  $out = & netsh wlan show profiles 2>$null
+  $list = [System.Collections.Generic.List[object]]::new()
+  foreach ($line in $out) {
+    if ($line -match '^\s*(All User Profile|所有用户配置文件)\s*:\s*(.+)$') {
+      $name = $matches[2].Trim()
+      if (-not [string]::IsNullOrEmpty($name)) {
+        $list.Add([pscustomobject]@{ ssid = $name })
+      }
+    }
+  }
+  return [pscustomobject]@{ networks = @($list) }
 }
 
 function Invoke-BtDevices {
@@ -1502,9 +1519,20 @@ function Invoke-SysCommand {
   } elseif ($cmd -eq 'wifiScan') {
     Invoke-WifiScan
   } elseif ($cmd -eq 'wifiConnect') {
-    Invoke-WifiConnect ([string]$cmdArgs[0]) ([string]$cmdArgs[1])
+    # 第三参 hidden：连接隐藏网络（SSID 不广播）时生成的配置文件带 nonBroadcast 标记
+    $hiddenFlag = $false
+    if ($cmdArgs.Count -gt 2 -and $null -ne $cmdArgs[2]) {
+      if ($cmdArgs[2] -is [bool]) {
+        $hiddenFlag = $cmdArgs[2]
+      } else {
+        $hiddenFlag = ($cmdArgs[2] -match '^(true|1|yes)$')
+      }
+    }
+    Invoke-WifiConnect ([string]$cmdArgs[0]) ([string]$cmdArgs[1]) $hiddenFlag
   } elseif ($cmd -eq 'wifiDisconnect') {
     Invoke-WifiDisconnect
+  } elseif ($cmd -eq 'wifiKnownNetworks') {
+    Invoke-WifiKnownNetworks
   } elseif ($cmd -eq 'btDevices') {
     Invoke-BtDevices
   } elseif ($cmd -eq 'btDiscover') {

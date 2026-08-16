@@ -82,7 +82,7 @@ const EMPTY_ICON =
   '</svg>';
 
 // 不在左侧导航中的子页面（高级管理、已安装的应用等）
-const SUB_PAGES = ['admin', 'apps-installed', 'storage', 'screen', 'sound', 'notify'];
+const SUB_PAGES = ['admin', 'apps-installed', 'storage', 'screen', 'sound', 'notify', 'network-known'];
 
 const BACK_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">' +
@@ -250,6 +250,12 @@ function navigateTo(id) {
   }
   if (id === 'notify') {
     loadNotify();
+  }
+  if (id === 'network') {
+    loadNetwork();
+  }
+  if (id === 'network-known') {
+    loadKnownNetworks();
   }
   document.getElementById('content').scrollTop = 0;
 }
@@ -1803,6 +1809,680 @@ async function loadNotify() {
 }
 
 /* ============================================================
+   网络和Internet
+   ============================================================ */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const NET_WIFI_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">' +
+  '<path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>' +
+  '</svg>';
+const NET_LOCK_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true">' +
+  '<path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM9 8V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z"/>' +
+  '</svg>';
+const NET_OPEN_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true">' +
+  '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>' +
+  '</svg>';
+const NET_INFO_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">' +
+  '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>' +
+  '</svg>';
+
+let wifiSwitch = null;
+let wifiBusy = false;
+let networkStatus = null;
+let networkScan = null;
+let knownNetworks = [];
+let knownConnectedSsid = '';
+let knownSortValue = 'pref';
+let knownFilterValue = 'all';
+let networkDialogMode = 'secured'; // secured | open | visible
+let confirmAction = null;
+
+function renderSignalBars(container, signal) {
+  const litCount = Math.max(1, Math.min(4, Math.round(((signal || 0) / 100) * 4)));
+  for (let i = 0; i < 4; i++) {
+    const bar = document.createElement('span');
+    if (i < litCount) bar.classList.add('lit');
+    container.appendChild(bar);
+  }
+}
+
+async function loadNetwork() {
+  const statusP = window.electronAPI.system.getWifiStatus().catch(() => null);
+  const scanP = window.electronAPI.system.scanWifi().catch(() => null);
+  const [statusRes, scanRes] = await Promise.all([statusP, scanP]);
+  networkStatus = statusRes && statusRes.success !== false ? statusRes : null;
+  networkScan = scanRes && scanRes.success !== false ? scanRes : null;
+  renderNetworkStatus();
+  renderCurrentNetworkCard();
+  renderAvailableNetworks();
+}
+
+function renderNetworkStatus() {
+  const host = document.getElementById('wifi-switch-host');
+  const desc = document.getElementById('network-status-desc');
+  if (!host || !desc) return;
+  if (!wifiSwitch) {
+    wifiSwitch = createWinSwitch({
+      checked: false,
+      ariaLabel: 'WLAN',
+      onChange: (checked) => setWifiPower(checked),
+    });
+    host.appendChild(wifiSwitch.el);
+  }
+  const status = networkStatus;
+  if (!status || status.available === false) {
+    desc.textContent = '未检测到无线网卡';
+    wifiSwitch.el.disabled = true;
+    wifiSwitch.setChecked(false);
+    return;
+  }
+  if (status.hardwareEnabled === false) {
+    desc.textContent = 'WiFi 硬件开关已关闭';
+    wifiSwitch.el.disabled = true;
+    wifiSwitch.setChecked(false);
+    return;
+  }
+  wifiSwitch.el.disabled = wifiBusy;
+  const radioEnabled = typeof status.radioEnabled === 'boolean'
+    ? status.radioEnabled
+    : status.adapterEnabled !== false;
+  wifiSwitch.setChecked(radioEnabled);
+  if (wifiBusy) {
+    desc.textContent = radioEnabled ? '正在关闭…' : '正在开启…';
+  } else if (status.connected) {
+    desc.textContent = `已连接 ${status.ssid || ''}`;
+  } else if (status.connecting) {
+    desc.textContent = '正在连接…';
+  } else if (!radioEnabled) {
+    desc.textContent = 'WiFi 已关闭';
+  } else {
+    desc.textContent = '未连接';
+  }
+}
+
+async function setWifiPower(enabled) {
+  if (wifiBusy) return;
+  wifiBusy = true;
+  renderNetworkStatus();
+  try {
+    await window.electronAPI.system.setWifiPower(enabled);
+  } catch (err) {
+    console.error('[网络] 切换 WiFi 失败:', err);
+  } finally {
+    wifiBusy = false;
+    await loadNetwork();
+  }
+}
+
+function renderCurrentNetworkCard() {
+  const card = document.getElementById('network-current-card');
+  if (!card) return;
+  const status = networkStatus;
+  if (!status || !status.connected) {
+    card.classList.add('hidden');
+    return;
+  }
+  card.classList.remove('hidden');
+  document.getElementById('network-current-name').textContent = status.ssid || '未知网络';
+  document.getElementById('network-current-desc').textContent = `已连接,${status.auth || '安全'}`;
+}
+
+function renderAvailableNetworks() {
+  const list = document.getElementById('available-networks-list');
+  const desc = document.getElementById('network-avail-desc');
+  if (!list || !desc) return;
+  const status = networkStatus;
+  const scan = networkScan;
+  if (scan && scan.autoConfigOff) {
+    desc.textContent = '自动配置已关闭';
+    list.innerHTML = '<div class="network-status-msg">自动配置已关闭，无法扫描网络</div>';
+    return;
+  }
+  const networks = (scan && scan.networks) || [];
+  desc.textContent = networks.length ? `${networks.length} 个可用网络` : '未扫描到可用网络';
+  if (networks.length === 0) {
+    if (status && status.radioEnabled === false) {
+      list.innerHTML = '<div class="network-status-msg">WiFi 已关闭，开启后可扫描网络</div>';
+    } else {
+      list.innerHTML = '<div class="network-status-msg">未扫描到可用网络</div>';
+    }
+    return;
+  }
+  const connectedSsid = status && status.connected ? status.ssid : '';
+  list.innerHTML = '';
+  networks.forEach((n) => {
+    if (!n.ssid) return;
+    const row = document.createElement('div');
+    row.className = 'network-row';
+    row.dataset.ssid = n.ssid;
+
+    const bars = document.createElement('span');
+    bars.className = 'signal-bars';
+    renderSignalBars(bars, n.signal);
+    row.appendChild(bars);
+
+    const icon = document.createElement('span');
+    icon.className = 'network-sec-icon';
+    icon.innerHTML = n.secured ? NET_LOCK_ICON : NET_OPEN_ICON;
+    row.appendChild(icon);
+
+    const name = document.createElement('span');
+    name.className = 'network-name';
+    name.textContent = n.ssid;
+    name.title = n.ssid;
+    row.appendChild(name);
+
+    const isConnected = n.ssid === connectedSsid;
+    if (isConnected) {
+      const state = document.createElement('span');
+      state.className = 'network-state connected';
+      state.textContent = '已连接';
+      row.appendChild(state);
+
+      const infoBtn = document.createElement('button');
+      infoBtn.type = 'button';
+      infoBtn.className = 'network-icon-btn';
+      infoBtn.title = '属性';
+      infoBtn.setAttribute('aria-label', '属性');
+      infoBtn.innerHTML = NET_INFO_ICON;
+      infoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showNetworkProps(n, status);
+      });
+      row.appendChild(infoBtn);
+
+      const disconnectBtn = document.createElement('button');
+      disconnectBtn.type = 'button';
+      disconnectBtn.className = 'network-action-btn disconnect';
+      disconnectBtn.textContent = '断开';
+      disconnectBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        disconnectBtn.disabled = true;
+        await window.electronAPI.system.disconnectWifi().catch(() => null);
+        await loadNetwork();
+      });
+      row.appendChild(disconnectBtn);
+    } else {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'network-action-btn connect';
+      btn.textContent = '连接';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (n.secured && !n.hasProfile) {
+          openNetworkDialog('visible', n.ssid);
+        } else {
+          connectToNetwork(n.ssid, '', false);
+        }
+      });
+      row.appendChild(btn);
+    }
+    list.appendChild(row);
+  });
+}
+
+async function connectToNetwork(ssid, password, hidden) {
+  const row = [...document.querySelectorAll('#available-networks-list .network-row')]
+    .find((r) => r.dataset.ssid === ssid);
+  const btn = row && row.querySelector('.network-action-btn.connect');
+  if (btn) {
+    btn.textContent = '连接中…';
+    btn.disabled = true;
+  }
+  try {
+    const r = await window.electronAPI.system.connectWifi(ssid, password, hidden);
+    if (r && r.success) {
+      // netsh connect 立即返回，实际关联需要数秒；轮询直到界面同步为"已连接"
+      for (let i = 0; i < 12; i++) {
+        await sleep(1500);
+        const st = await window.electronAPI.system.getWifiStatus().catch(() => null);
+        if (st && st.connected) break;
+      }
+    } else {
+      console.warn('[网络] 连接失败:', r);
+    }
+  } catch (err) {
+    console.error('[网络] 连接失败:', err);
+  }
+  await loadNetwork();
+}
+
+function openNetworkDialog(mode, ssid) {
+  networkDialogMode = mode;
+  const overlay = document.getElementById('network-dialog-overlay');
+  const title = document.getElementById('network-dialog-title');
+  const ssidWrap = document.getElementById('network-dialog-ssid-wrap');
+  const pwdWrap = document.getElementById('network-dialog-pwd-wrap');
+  const ssidInput = document.getElementById('network-dialog-ssid');
+  const pwdInput = document.getElementById('network-dialog-password');
+  const okBtn = document.getElementById('btn-network-dialog-ok');
+  ssidInput.value = ssid || '';
+  pwdInput.value = '';
+  setNetworkDialogStatus('');
+  if (mode === 'visible') {
+    title.textContent = `连接到 ${ssid}`;
+    ssidWrap.classList.add('hidden');
+    pwdWrap.classList.remove('hidden');
+    okBtn.textContent = '连接';
+  } else if (mode === 'open') {
+    title.textContent = '连接到其他网络（公开）';
+    ssidWrap.classList.remove('hidden');
+    pwdWrap.classList.add('hidden');
+    okBtn.textContent = '连接';
+  } else {
+    title.textContent = '连接到其他网络（密码）';
+    ssidWrap.classList.remove('hidden');
+    pwdWrap.classList.remove('hidden');
+    okBtn.textContent = '连接';
+  }
+  overlay.classList.remove('hidden');
+  setTimeout(() => {
+    if (ssidWrap.classList.contains('hidden')) pwdInput.focus();
+    else ssidInput.focus();
+  }, 50);
+}
+
+function closeNetworkDialog() {
+  document.getElementById('network-dialog-overlay').classList.add('hidden');
+  networkDialogMode = 'secured';
+}
+
+function setNetworkDialogStatus(message, type) {
+  const status = document.getElementById('network-dialog-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.classList.toggle('hidden', !message);
+  status.classList.toggle('success', type === 'success');
+  status.classList.toggle('error', type === 'error');
+}
+
+async function submitNetworkDialog() {
+  const ssidInput = document.getElementById('network-dialog-ssid');
+  const pwdInput = document.getElementById('network-dialog-password');
+  const okBtn = document.getElementById('btn-network-dialog-ok');
+  const ssid = ssidInput.value.trim();
+  if (networkDialogMode !== 'visible' && !ssid) {
+    setNetworkDialogStatus('请输入网络名称 (SSID)', 'error');
+    ssidInput.focus();
+    return;
+  }
+  if (networkDialogMode === 'secured' && !pwdInput.value) {
+    setNetworkDialogStatus('请输入密码', 'error');
+    pwdInput.focus();
+    return;
+  }
+  okBtn.disabled = true;
+  okBtn.textContent = '连接中…';
+  setNetworkDialogStatus('');
+  try {
+    const r = await window.electronAPI.system.connectWifi(ssid, pwdInput.value, networkDialogMode !== 'visible');
+    if (r && r.success) {
+      setNetworkDialogStatus(`正在连接 ${ssid}…`, 'success');
+      for (let i = 0; i < 12; i++) {
+        await sleep(1500);
+        const st = await window.electronAPI.system.getWifiStatus().catch(() => null);
+        if (st && st.connected) break;
+      }
+      closeNetworkDialog();
+      await loadNetwork();
+    } else {
+      setNetworkDialogStatus(`连接失败：${(r && r.error) || '未知错误'}`, 'error');
+    }
+  } catch (err) {
+    console.error('[网络] 连接失败:', err);
+    setNetworkDialogStatus('连接失败，请稍后重试', 'error');
+  } finally {
+    okBtn.disabled = false;
+    okBtn.textContent = '连接';
+  }
+}
+
+function showNetworkProps(net, status) {
+  const list = document.getElementById('props-dialog-list');
+  if (!list) return;
+  const isConnected = status && status.connected && net.ssid === status.ssid;
+  const rows = [
+    ['名称', net.ssid || '—'],
+    ['状态', isConnected ? '已连接' : '未连接'],
+    ['信号', `${net.signal || 0}%`],
+    ['认证', net.auth || '—'],
+    ['加密', net.encryption || '—'],
+    ['配置文件', net.hasProfile ? '已保存' : '未保存'],
+  ];
+  list.innerHTML = '';
+  rows.forEach(([label, value]) => {
+    const row = document.createElement('div');
+    row.className = 'props-row';
+    const l = document.createElement('span');
+    l.className = 'props-label';
+    l.textContent = label;
+    const v = document.createElement('span');
+    v.className = 'props-value';
+    v.textContent = value;
+    row.appendChild(l);
+    row.appendChild(v);
+    list.appendChild(row);
+  });
+  document.getElementById('props-dialog-title').textContent = `${net.ssid || '网络'} 属性`;
+  document.getElementById('props-dialog-overlay').classList.remove('hidden');
+}
+
+function closePropsDialog() {
+  document.getElementById('props-dialog-overlay').classList.add('hidden');
+}
+
+function showConfirmDialog(text, onOk) {
+  document.getElementById('confirm-dialog-text').textContent = text;
+  confirmAction = onOk;
+  document.getElementById('confirm-dialog-overlay').classList.remove('hidden');
+}
+
+function closeConfirmDialog() {
+  confirmAction = null;
+  document.getElementById('confirm-dialog-overlay').classList.add('hidden');
+}
+
+async function loadKnownNetworks() {
+  const list = document.getElementById('known-network-list');
+  if (!list) return;
+  list.innerHTML = '<div class="network-status-msg">正在读取已保存的网络…</div>';
+  const statusRes = await window.electronAPI.system.getWifiStatus().catch(() => null);
+  knownConnectedSsid = statusRes && statusRes.connected ? statusRes.ssid : '';
+  try {
+    const res = await window.electronAPI.system.getWifiKnownNetworks();
+    if (res && res.success === false) throw new Error(res.error || 'unknown');
+    knownNetworks = (res && res.networks) || [];
+    setKnownListStatus('');
+  } catch (err) {
+    console.error('[网络] 读取已知网络失败:', err);
+    knownNetworks = [];
+    setKnownListStatus('读取已知网络失败', 'error');
+  }
+  renderKnownNetworks();
+}
+
+function setKnownListStatus(message, type) {
+  const status = document.getElementById('known-list-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.classList.toggle('hidden', !message);
+  status.classList.toggle('success', type === 'success');
+  status.classList.toggle('error', type === 'error');
+}
+
+function renderKnownNetworks() {
+  const list = document.getElementById('known-network-list');
+  if (!list) return;
+  const searchInput = document.getElementById('known-search');
+  const query = (searchInput && searchInput.value || '').trim().toLowerCase();
+  let items = knownNetworks.slice();
+  if (knownFilterValue === 'connected') {
+    items = items.filter((n) => n.ssid === knownConnectedSsid);
+  }
+  if (query) {
+    items = items.filter((n) => String(n.ssid).toLowerCase().includes(query));
+  }
+  if (knownSortValue === 'name') {
+    items.sort((a, b) => String(a.ssid).localeCompare(String(b.ssid), 'zh'));
+  }
+  list.innerHTML = '';
+  if (!knownNetworks.length) {
+    list.innerHTML = '<div class="network-status-msg">未找到已保存的网络</div>';
+    return;
+  }
+  if (!items.length) {
+    list.innerHTML = '<div class="network-status-msg">没有符合筛选条件的网络</div>';
+    return;
+  }
+  items.forEach((n) => {
+    const row = document.createElement('div');
+    row.className = 'known-network-row';
+
+    const icon = document.createElement('span');
+    icon.className = 'known-network-icon';
+    icon.innerHTML = NET_WIFI_ICON;
+    row.appendChild(icon);
+
+    const name = document.createElement('span');
+    name.className = 'known-network-name';
+    name.textContent = n.ssid;
+    name.title = n.ssid;
+    row.appendChild(name);
+
+    if (n.ssid === knownConnectedSsid) {
+      const state = document.createElement('span');
+      state.className = 'network-state connected';
+      state.textContent = '已连接';
+      row.appendChild(state);
+    }
+
+    const forgetBtn = document.createElement('button');
+    forgetBtn.type = 'button';
+    forgetBtn.className = 'known-forget-btn';
+    forgetBtn.textContent = '忘记';
+    forgetBtn.addEventListener('click', () => forgetKnownNetwork(n.ssid));
+    row.appendChild(forgetBtn);
+
+    list.appendChild(row);
+  });
+}
+
+function forgetKnownNetwork(ssid) {
+  showConfirmDialog(`确定忘记网络「${ssid}」吗？忘记后将需要重新输入密码才能连接。`, async () => {
+    closeConfirmDialog();
+    try {
+      const r = await window.electronAPI.system.forgetWifi(ssid);
+      if (r && r.success) {
+        knownNetworks = knownNetworks.filter((n) => n.ssid !== ssid);
+        renderKnownNetworks();
+      } else {
+        setKnownListStatus(`忘记网络失败：${(r && r.error) || '未知错误'}`, 'error');
+        loadKnownNetworks();
+      }
+    } catch (err) {
+      console.error('[网络] 忘记网络失败:', err);
+      setKnownListStatus('忘记网络失败，请稍后重试', 'error');
+    }
+  });
+}
+
+async function addKnownNetwork() {
+  const ssidInput = document.getElementById('known-add-ssid');
+  const pwdInput = document.getElementById('known-add-password');
+  const hiddenChk = document.getElementById('known-add-hidden');
+  const btn = document.getElementById('btn-add-network');
+  const statusEl = document.getElementById('known-add-status');
+  if (!ssidInput || !statusEl) return;
+  const ssid = ssidInput.value.trim();
+  const password = pwdInput ? pwdInput.value : '';
+  if (!ssid) {
+    statusEl.textContent = '请输入网络名称 (SSID)';
+    statusEl.classList.remove('hidden', 'success');
+    statusEl.classList.add('error');
+    ssidInput.focus();
+    return;
+  }
+  btn.disabled = true;
+  statusEl.textContent = '正在添加并连接…';
+  statusEl.classList.remove('hidden', 'success', 'error');
+  try {
+    const r = await window.electronAPI.system.connectWifi(ssid, password, !!(hiddenChk && hiddenChk.checked));
+    if (r && r.success) {
+      statusEl.textContent = `已添加并连接 ${ssid}`;
+      statusEl.classList.add('success');
+      ssidInput.value = '';
+      if (pwdInput) pwdInput.value = '';
+      await loadKnownNetworks();
+    } else {
+      statusEl.textContent = `添加失败：${(r && r.error) || '未知错误'}`;
+      statusEl.classList.add('error');
+    }
+  } catch (err) {
+    console.error('[网络] 添加网络失败:', err);
+    statusEl.textContent = '添加失败，请稍后重试';
+    statusEl.classList.add('error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function bindNetworkPageEvents() {
+  const expanderRow = document.getElementById('row-available-networks');
+  const expander = document.getElementById('available-networks-expander');
+  if (expanderRow && expander) {
+    const toggle = () => {
+      const open = expander.classList.toggle('open');
+      expanderRow.classList.toggle('expanded', open);
+      expanderRow.setAttribute('aria-expanded', String(open));
+      if (open) loadNetwork();
+    };
+    expanderRow.addEventListener('click', toggle);
+    expanderRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  }
+
+  const manageRow = document.getElementById('row-manage-known');
+  if (manageRow) {
+    const openKnown = () => navigateTo('network-known');
+    manageRow.addEventListener('click', openKnown);
+    manageRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openKnown();
+      }
+    });
+  }
+
+  const bindOtherRow = (rowId, mode) => {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const open = () => openNetworkDialog(mode);
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        open();
+      }
+    });
+  };
+  bindOtherRow('row-other-secured', 'secured');
+  bindOtherRow('row-other-open', 'open');
+
+  const currentRow = document.getElementById('row-network-current');
+  if (currentRow) {
+    currentRow.addEventListener('click', () => {
+      if (networkStatus && networkStatus.connected) {
+        showNetworkProps({
+          ssid: networkStatus.ssid || '未知网络',
+          signal: networkStatus.signal || 0,
+          auth: networkStatus.auth || '—',
+          encryption: '—',
+          hasProfile: true,
+        }, networkStatus);
+      }
+    });
+  }
+
+  document.getElementById('btn-network-dialog-cancel').addEventListener('click', closeNetworkDialog);
+  document.getElementById('btn-network-dialog-ok').addEventListener('click', submitNetworkDialog);
+  document.getElementById('network-dialog-overlay').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeNetworkDialog();
+    }
+  });
+  ['network-dialog-ssid', 'network-dialog-password'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitNetworkDialog();
+        }
+      });
+    }
+  });
+
+  document.getElementById('btn-props-close').addEventListener('click', closePropsDialog);
+  document.getElementById('props-dialog-overlay').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closePropsDialog();
+    }
+  });
+
+  document.getElementById('btn-confirm-cancel').addEventListener('click', closeConfirmDialog);
+  document.getElementById('btn-confirm-ok').addEventListener('click', () => {
+    if (confirmAction) {
+      const fn = confirmAction;
+      confirmAction = null;
+      fn();
+    }
+  });
+  document.getElementById('confirm-dialog-overlay').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeConfirmDialog();
+    }
+  });
+
+  const searchInput = document.getElementById('known-search');
+  if (searchInput) searchInput.addEventListener('input', renderKnownNetworks);
+
+  const sortHost = document.getElementById('known-sort-host');
+  if (sortHost) {
+    const sortCombo = createWinComboBox([
+      { value: 'pref', label: '偏好' },
+      { value: 'name', label: '名称' },
+    ], knownSortValue, {
+      ariaLabel: '排序依据',
+      onChange: (v) => {
+        knownSortValue = v;
+        renderKnownNetworks();
+      },
+    });
+    sortHost.appendChild(sortCombo.el);
+  }
+
+  const filterHost = document.getElementById('known-filter-host');
+  if (filterHost) {
+    const filterCombo = createWinComboBox([
+      { value: 'all', label: '全部' },
+      { value: 'connected', label: '已连接' },
+    ], knownFilterValue, {
+      ariaLabel: '筛选条件',
+      onChange: (v) => {
+        knownFilterValue = v;
+        renderKnownNetworks();
+      },
+    });
+    filterHost.appendChild(filterCombo.el);
+  }
+
+  const addBtn = document.getElementById('btn-add-network');
+  if (addBtn) addBtn.addEventListener('click', addKnownNetwork);
+  ['known-add-ssid', 'known-add-password'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addKnownNetwork();
+        }
+      });
+    }
+  });
+}
+
+/* ============================================================
    窗口控制
    ============================================================ */
 function setupWindowControls() {
@@ -1886,6 +2566,14 @@ function init() {
   // 返回主页
   document.querySelectorAll('[data-back]').forEach((btn) => {
     btn.addEventListener('click', () => navigateTo('home'));
+  });
+
+  // 网络页：返回主页 / 返回网络页
+  document.querySelectorAll('[data-back-home]').forEach((btn) => {
+    btn.addEventListener('click', () => navigateTo('home'));
+  });
+  document.querySelectorAll('[data-back-network]').forEach((btn) => {
+    btn.addEventListener('click', () => navigateTo('network'));
   });
 
   // 高级管理返回账户页
@@ -2078,6 +2766,8 @@ function init() {
 
   // 账户页：“你的信息”展开与修改
   bindAccountPageEvents();
+  // 网络和Internet：状态 / 可用网络 / 管理已知网络
+  bindNetworkPageEvents();
 
   // 主进程下发主题与账户信息
   window.electronAPI.settings.onTheme((data) => {

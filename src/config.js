@@ -144,9 +144,100 @@ async function ensureUserDir(userId) {
 
 const PASSWD_FILE = path.join(AMSYS_ROOT, 'etc', 'passwd');
 const SHADOW_FILE = path.join(AMSYS_ROOT, 'etc', 'shadow');
+const USERS_TOML = path.join(AMSYS_ROOT, 'etc', 'users.toml');
 
 // 合法权限（passwd 第 2 位，root/sudo/user 三种）
 const VALID_PERMISSIONS = ['root', 'sudo', 'user'];
+
+/**
+ * 读取 amsys 的 users.toml 权限表（{ 登录名: permi }）。
+ * amsys 以 users.toml 为权限权威并会据此重建 passwd，应用必须与之对齐
+ */
+async function readTomlPermissions() {
+  const perms = {};
+  try {
+    const text = await fs.readFile(USERS_TOML, 'utf8');
+    let current = null;
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      const m = /^\[user\.(.+)\]$/.exec(t);
+      if (m) { current = m[1]; continue; }
+      if (current) {
+        const kv = /^permission\s*=\s*"([^"]+)"$/.exec(t);
+        if (kv) perms[current] = kv[1];
+      }
+    }
+  } catch {}
+  return perms;
+}
+
+/**
+ * 在 users.toml 中写入/更新某用户的权限块（不存在则追加）
+ */
+async function setUserTomlPermission(name, permi) {
+  if (!name) return;
+  const perm = VALID_PERMISSIONS.includes(permi) ? permi : 'user';
+  let text = '';
+  try { text = await fs.readFile(USERS_TOML, 'utf8'); } catch {}
+  const lines = text ? text.split(/\r?\n/) : [];
+  const out = [];
+  let inBlock = false;
+  let wrote = false;
+  for (const line of lines) {
+    const t = line.trim();
+    const m = /^\[user\.(.+)\]$/.exec(t);
+    if (m) {
+      inBlock = m[1] === name;
+      out.push(line);
+      continue;
+    }
+    if (inBlock && /^permission\s*=/.test(t)) {
+      out.push(`permission = "${perm}"`);
+      wrote = true;
+      continue;
+    }
+    out.push(line);
+  }
+  if (!wrote) {
+    while (out.length && out[out.length - 1].trim() === '') out.pop();
+    out.push(`[user.${name}]`);
+    out.push(`permission = "${perm}"`);
+  }
+  const newText = out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '') + '\n';
+  if (newText !== text) {
+    await fs.writeFile(USERS_TOML, newText, 'utf8');
+  }
+}
+
+/**
+ * 从 users.toml 移除某用户的权限块（含块内属性直到下一 [ 段）
+ */
+async function removeUserTomlBlock(name) {
+  if (!name) return;
+  try {
+    let text = '';
+    try { text = await fs.readFile(USERS_TOML, 'utf8'); } catch { return; }
+    const lines = text.split(/\r?\n/);
+    const out = [];
+    let skipping = false;
+    for (const line of lines) {
+      const t = line.trim();
+      if (skipping) {
+        if (t.startsWith('[')) { skipping = false; out.push(line); }
+        continue;
+      }
+      if (t.toLowerCase() === `[user.${name}]`.toLowerCase()) {
+        skipping = true;
+        continue;
+      }
+      out.push(line);
+    }
+    const newText = out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '') + '\n';
+    if (newText !== text) {
+      await fs.writeFile(USERS_TOML, newText, 'utf8');
+    }
+  } catch {}
+}
 
 /**
  * 读取 /etc/passwd 与 /etc/shadow，解析为按 UID 排序的用户记录数组。
@@ -162,6 +253,8 @@ async function readPasswdShadow() {
   let shadowText = '';
   try { passwdText = await fs.readFile(PASSWD_FILE, 'utf8'); } catch {}
   try { shadowText = await fs.readFile(SHADOW_FILE, 'utf8'); } catch {}
+  // 权限以 amsys users.toml 为权威（passwd 字段2 可能被 amsys 重写为 x）
+  const tomlPerms = await readTomlPermissions();
 
   const hashByLogin = {};
   for (const line of shadowText.split(/\r?\n/)) {
@@ -181,7 +274,11 @@ async function readPasswdShadow() {
       userid: uid,
       loginName,
       username: nick || loginName,
-      permi: VALID_PERMISSIONS.includes(permission) ? permission : 'user',
+      permi: VALID_PERMISSIONS.includes(permission)
+        ? permission
+        : (VALID_PERMISSIONS.includes(tomlPerms[loginName]) ? tomlPerms[loginName]
+          : (VALID_PERMISSIONS.includes(tomlPerms[nick || loginName]) ? tomlPerms[nick || loginName]
+            : 'user')),
       password: hashByLogin[loginName] !== undefined ? hashByLogin[loginName] : '',
       gid: gidStr,
       home,
@@ -327,6 +424,12 @@ async function syncUsersFromPasswdShadow() {
   try {
     await ensureConfigDir();
     const records = await readPasswdShadow();
+    // 迁移：amsys 重写 passwd 后字段2 失效，保留旧 users.json 的非 user 权限到 users.toml
+    let oldByUid = {};
+    try {
+      const old = JSON.parse(await fs.readFile(USERS_FILE, 'utf8'));
+      for (const u of (old.users || [])) oldByUid[u.userid] = u.permi;
+    } catch {}
     const users = [];
     for (const r of records) {
       await ensureUserDir(r.userid);
@@ -335,12 +438,17 @@ async function syncUsersFromPasswdShadow() {
         config = JSON.parse(await fs.readFile(getUserConfigPath(r.userid), 'utf8'));
       } catch {}
       const photo = (config && config.login && config.login.photo !== undefined) ? config.login.photo : null;
+      let permi = r.permi;
+      if (permi === 'user' && oldByUid[r.userid] && oldByUid[r.userid] !== 'user') {
+        permi = oldByUid[r.userid];
+        await setUserTomlPermission(r.loginName, permi);
+      }
       const login = {
         userid: r.userid,
         username: r.username,
         password: r.password,
         photo,
-        permi: r.permi
+        permi
       };
       const newConfig = config ? { ...config, login } : {
         login,
@@ -355,7 +463,7 @@ async function syncUsersFromPasswdShadow() {
       if (oldContent !== newContent) {
         await saveJSON(getUserConfigPath(r.userid), newConfig);
       }
-      users.push({ userid: r.userid, username: r.username, photo, permi: r.permi });
+      users.push({ userid: r.userid, username: r.username, photo, permi });
     }
     users.sort((a, b) => a.userid - b.userid);
     await saveUsers(users);
@@ -701,6 +809,14 @@ async function addUser(username, password = '', photo = null, permi = 'user', ni
     makeShadowLine(loginName, hash)
   );
 
+  // amsys 模型：home 目录是用户存在性的依据，users.toml 是权限依据
+  if (perm !== 'root') {
+    try {
+      await fs.mkdir(path.join(AMSYS_ROOT, 'home', loginName), { recursive: true });
+    } catch {}
+  }
+  await setUserTomlPermission(loginName, perm);
+
   await ensureUserDir(uid);
   await saveJSON(getUserConfigPath(uid), {
     login: { userid: uid, username: nick, password: hash, photo, permi: perm },
@@ -807,12 +923,20 @@ async function updateUser(userId, updates) {
     }
   });
 
+  // 同步 amsys users.toml：权限变更写入；登录名变更迁移块
+  if (prevLoginName && prevLoginName !== loginName) {
+    await removeUserTomlBlock(prevLoginName);
+  }
+  await setUserTomlPermission(loginName, perm);
+
   await syncUsersFromPasswdShadow();
   return { userid: userId, username: nick, photo, permi: perm };
 }
 
 /**
  * 删除用户（同时从 /etc/passwd、/etc/shadow 与 config 目录移除；root 不可删除）
+ * 还会删除该用户的 home 目录与 users.toml 条目——否则 amsys 会扫描 /home
+ * 把残留目录重建为 passwd 用户（曾导致"被删用户重启后复活"）
  * @param {number} userId - 用户ID（UID）
  */
 async function deleteUser(userId) {
@@ -833,6 +957,53 @@ async function deleteUser(userId) {
   lines.shadow = lines.shadow.filter((l) => !isTarget(l));
   await fs.writeFile(PASSWD_FILE, serializeAuthLines(lines.passwd), 'utf8');
   await fs.writeFile(SHADOW_FILE, serializeAuthLines(lines.shadow), 'utf8');
+
+  // 删除 home 目录（避免 amsys 扫描 /home 重建用户）；/root 不删
+  const homeRel = String(rec.home || '').replace(/^[\\/]+/, '');
+  if (homeRel && homeRel.toLowerCase() !== 'root') {
+    try {
+      await fs.rm(path.join(AMSYS_ROOT, homeRel), { recursive: true, force: true });
+      console.log(`[config] Removed home dir: ${homeRel}`);
+    } catch (e) {
+      console.warn('[config] Failed to remove home dir:', homeRel, e.message);
+    }
+  }
+
+  // 从 amsys 权威文件 users.toml 中移除 [user.<登录名>/<昵称>] 块
+  try {
+    const tomlPath = path.join(AMSYS_ROOT, 'etc', 'users.toml');
+    let text = '';
+    try { text = await fs.readFile(tomlPath, 'utf8'); } catch { text = null; }
+    if (text !== null) {
+      const targets = new Set([rec.loginName, rec.username].filter(Boolean));
+      let newText = text;
+      for (const name of targets) {
+        const lines = newText.split(/\r?\n/);
+        const out = [];
+        let skipping = false;
+        const blockHeader = `[user.${name}]`.toLowerCase();
+        for (const line of lines) {
+          const t = line.trim();
+          if (skipping) {
+            if (t.startsWith('[')) { skipping = false; out.push(line); }
+            continue;
+          }
+          if (t.toLowerCase() === blockHeader) {
+            skipping = true;
+            continue;
+          }
+          out.push(line);
+        }
+        newText = out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '') + '\n';
+      }
+      if (newText !== text) {
+        await fs.writeFile(tomlPath, newText, 'utf8');
+        console.log(`[config] Removed users.toml entries: ${[...targets].join(', ')}`);
+      }
+    }
+  } catch (e) {
+    console.warn('[config] Failed to update users.toml:', e.message);
+  }
 
   try {
     await fs.rm(path.join(CONFIG_DIR, String(userId)), { recursive: true, force: true });
@@ -962,6 +1133,9 @@ async function setPermission(userId, permi) {
     makePasswdLine(rec.loginName, perm, userId, rec.username, home),
     makeShadowLine(rec.loginName, rec.password)
   );
+
+  // 权限同步到 amsys users.toml（passwd 字段2 会被 amsys 重写，以 toml 为准）
+  await setUserTomlPermission(rec.loginName, perm);
 
   let config = null;
   try {

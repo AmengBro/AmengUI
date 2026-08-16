@@ -79,3 +79,12 @@
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
 }
+
+.win-switch:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.win-switch:disabled .win-switch-thumb::after {
+  transform: none;
+}
