@@ -18,6 +18,7 @@ $script:btState = $null
 $script:cap = $null
 $script:wifiScanCache = $null
 $script:wifiStatusCache = $null
+$script:timeZonesCache = $null
 $script:btDevicesCache = $null
 $script:btScanCache = $null
 $script:btStatusCache = $null
@@ -1214,6 +1215,58 @@ function Invoke-WifiKnownNetworks {
   return [pscustomobject]@{ networks = @($list) }
 }
 
+function Invoke-TimeStatus {
+  # 当前时间 / 时区 / 语言区域信息（设置-时间和语言用）
+  $tz = Get-TimeZone -ErrorAction SilentlyContinue
+  $cult = Get-Culture -ErrorAction SilentlyContinue
+  $now = Get-Date
+  $shortTime = ''
+  $shortDate = ''
+  if ($cult -and $cult.DateTimeFormat) {
+    $shortTime = $now.ToString($cult.DateTimeFormat.ShortTimePattern)
+    $shortDate = $now.ToString($cult.DateTimeFormat.ShortDatePattern)
+  }
+  return [pscustomobject]@{
+    now = $now.ToString('o')
+    timezoneId = $tz.Id
+    timezoneDisplay = $tz.DisplayName
+    culture = $cult.Name
+    cultureDisplay = $cult.DisplayName
+    dateSample = $shortDate
+    timeSample = $shortTime
+    # 12/24 小时制判定：ShortTimePattern 含 't'（AM/PM 标记）为 12 小时制
+    systemIs24h = -not ($cult.DateTimeFormat.ShortTimePattern -match 't')
+  }
+}
+
+function Invoke-TimeZones {
+  # 时区列表（Get-TimeZone -ListAvailable 较慢，进程内缓存 10 分钟）
+  if ($null -ne $script:timeZonesCache -and ((Get-Date) - $script:timeZonesCache.at).TotalMinutes -lt 10) {
+    return $script:timeZonesCache.data
+  }
+  $list = @(Get-TimeZone -ListAvailable -ErrorAction SilentlyContinue | ForEach-Object {
+    [pscustomobject]@{ id = $_.Id; display = $_.DisplayName }
+  })
+  $result = [pscustomobject]@{ zones = $list }
+  $script:timeZonesCache = @{ at = Get-Date; data = $result }
+  return $result
+}
+
+function Set-TimeZoneCmd {
+  param($id)
+  if ([string]::IsNullOrEmpty($id)) { return [pscustomobject]@{ success = $false; error = 'no_id' } }
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) {
+    return [pscustomobject]@{ success = $false; error = 'admin_required' }
+  }
+  try {
+    Set-TimeZone -Id $id -ErrorAction Stop
+    return [pscustomobject]@{ success = $true; timezoneId = $id }
+  } catch {
+    return [pscustomobject]@{ success = $false; error = 'set_failed'; detail = $_.Exception.Message }
+  }
+}
+
 function Invoke-BtDevices {
   # 10 秒缓存：已配对设备列表（Win32 BluetoothFindFirstDevice(remembered)，
   # 回退注册表 BTHPORT\Parameters\Devices）
@@ -1561,6 +1614,12 @@ function Invoke-SysCommand {
     Set-BrightnessValue $cmdArgs[0]
   } elseif ($cmd -eq 'wifiForget') {
     Invoke-WifiForget ([string]$cmdArgs[0])
+  } elseif ($cmd -eq 'timeStatus') {
+    Invoke-TimeStatus
+  } elseif ($cmd -eq 'timeZones') {
+    Invoke-TimeZones
+  } elseif ($cmd -eq 'setTimeZone') {
+    Set-TimeZoneCmd ([string]$cmdArgs[0])
   } else {
     throw "unknown sys command: $cmd"
   }

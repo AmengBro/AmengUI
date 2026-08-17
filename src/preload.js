@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setDisplayProfile: (profile, userId) => ipcRenderer.invoke('config:setDisplayProfile', profile, userId),
     /** 设置通知偏好（notifyApps/notifySystem/notifyDnd） */
     setNotificationPref: (key, value, userId) => ipcRenderer.invoke('config:setNotificationPref', key, value, userId),
+    /** 设置 12/24 小时制显示偏好（true=24 小时制） */
+    setTimeFormat24h: (value, userId) => ipcRenderer.invoke('config:setTimeFormat24h', value, userId),
     /** 保存最后登录的用户ID */
     setLastLoginUserId: (userId) => ipcRenderer.invoke('config:setLastLoginUserId', userId),
     /** 获取最后登录的用户ID */
@@ -104,6 +106,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setSessionMute: (pid, mute) => ipcRenderer.invoke('system:setSessionMute', pid, mute),
     /** 切换蓝牙状态 */
     toggleBluetooth: () => ipcRenderer.invoke('system:toggleBluetooth'),
+    /** 启动蓝牙辅助工具：transfer=文件传输向导(fsquirt) / options=经典蓝牙设置(bthprops) */
+    launchBtUtility: (kind) => ipcRenderer.invoke('system:launchBtUtility', kind),
     /** 切换飞行模式 */
     toggleFlightMode: () => ipcRenderer.invoke('system:toggleFlightMode'),
     /** 获取飞行模式状态 */
@@ -142,6 +146,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     disconnectBluetoothDevice: (address) => ipcRenderer.invoke('system:disconnectBluetoothDevice', address),
     /** 忘记 WiFi 网络（删除已存配置文件） */
     forgetWifi: (ssid) => ipcRenderer.invoke('system:forgetWifi', ssid),
+    /** 获取当前时间 / 时区 / 语言区域信息 */
+    getTimeStatus: () => ipcRenderer.invoke('system:getTimeStatus'),
+    /** 获取全部可用时区列表 */
+    getTimeZones: () => ipcRenderer.invoke('system:getTimeZones'),
+    /** 设置系统时区（需要管理员权限） */
+    setTimeZone: (id) => ipcRenderer.invoke('system:setTimeZone', id),
     /** 获取系统能力（PE 兼容性探测） */
     getCapabilities: () => ipcRenderer.invoke('system:getCapabilities')
   },
@@ -183,7 +193,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 启动应用程序 */
     launch: (appName) => ipcRenderer.invoke('app:launch', appName),
     /** 获取应用信息 */
-    getInfo: (appName) => ipcRenderer.invoke('app:getInfo', appName)
+    getInfo: (appName) => ipcRenderer.invoke('app:getInfo', appName),
+    /** 获取关于信息（版本 / 运行时 / 系统） */
+    getAboutInfo: () => ipcRenderer.invoke('app:getAboutInfo')
   },
   
   // 应用列表 API

@@ -48,23 +48,8 @@ const NAV_ITEMS = [
     icon: '<path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>',
   },
   {
-    id: 'gaming',
-    label: '游戏',
-    icon: '<path d="M15 7.5V2H9v5.5l3 3 3-3zM7.5 9H2v6h5.5l3-3-3-3zm9 0l-3 3 3 3H22V9h-5.5zM9 16.5V22h6v-5.5l-3-3-3 3z"/>',
-  },
-  {
-    id: 'accessibility',
-    label: '辅助功能',
-    icon: '<path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>',
-  },
-  {
-    id: 'privacy',
-    label: '隐私和安全性',
-    icon: '<path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>',
-  },
-  {
     id: 'update',
-    label: 'Windows 更新',
+    label: '信息与更新',
     icon: '<path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>',
   },
 ];
@@ -82,7 +67,7 @@ const EMPTY_ICON =
   '</svg>';
 
 // 不在左侧导航中的子页面（高级管理、已安装的应用等）
-const SUB_PAGES = ['admin', 'apps-installed', 'storage', 'screen', 'sound', 'notify', 'network-known'];
+const SUB_PAGES = ['admin', 'apps-installed', 'storage', 'screen', 'sound', 'notify', 'network-known', 'bluetooth-add'];
 
 const BACK_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">' +
@@ -112,6 +97,7 @@ const state = {
   notifyApps: true,
   notifySystem: true,
   notifyDnd: false,
+  time24h: true,
   deviceName: '',
   deviceModel: '',
   account: { username: '用户', email: '', roleLabel: '本地账户', avatar: null },
@@ -213,6 +199,10 @@ function navigateTo(id) {
   if (prevPage === 'apps-installed' && id !== 'apps-installed') {
     installedRowState.clear();
   }
+  // 离开“时间和语言”：停止实时时钟定时器
+  if (prevPage === 'time' && id !== 'time') {
+    stopTimeTick();
+  }
   const target = ensurePage(id);
   if (!target) return;
 
@@ -256,6 +246,18 @@ function navigateTo(id) {
   }
   if (id === 'network-known') {
     loadKnownNetworks();
+  }
+  if (id === 'bluetooth') {
+    loadBluetooth();
+  }
+  if (id === 'bluetooth-add') {
+    loadBtAdd();
+  }
+  if (id === 'time') {
+    loadTime();
+  }
+  if (id === 'update') {
+    loadAbout();
   }
   document.getElementById('content').scrollTop = 0;
 }
@@ -2483,6 +2485,757 @@ function bindNetworkPageEvents() {
 }
 
 /* ============================================================
+   蓝牙和其他设备
+   ============================================================ */
+const BT_ICON =
+  '<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">' +
+  '<path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>' +
+  '</svg>';
+
+let btSwitch = null;
+let btBusy = false;
+let btScanning = false;
+let btStatus = null;
+let btDevices = [];
+let btAddDevices = [];
+let btPairTarget = null;
+
+function setBtHint(message, type) {
+  const hint = document.getElementById('bt-status-hint');
+  if (!hint) return;
+  hint.textContent = message || '';
+  hint.classList.toggle('hidden', !message);
+  hint.classList.toggle('success', type === 'success');
+  hint.classList.toggle('error', type === 'error');
+}
+
+async function loadBluetooth() {
+  const statusP = window.electronAPI.system.getBluetoothStatus().catch(() => null);
+  const devP = window.electronAPI.system.getBluetoothDevices().catch(() => null);
+  const [statusRes, devRes] = await Promise.all([statusP, devP]);
+  btStatus = statusRes && statusRes.success ? statusRes : null;
+  btDevices = (devRes && devRes.devices) || [];
+  renderBtStatus();
+  renderBtDevices();
+}
+
+function renderBtStatus() {
+  const host = document.getElementById('bt-switch-host');
+  const desc = document.getElementById('bt-status-desc');
+  const addRow = document.getElementById('row-bt-add');
+  const addBtn = document.getElementById('btn-bt-add');
+  if (!host || !desc) return;
+  if (!btSwitch) {
+    btSwitch = createWinSwitch({
+      checked: false,
+      ariaLabel: '蓝牙',
+      onChange: (checked) => setBtPower(checked),
+    });
+    host.appendChild(btSwitch.el);
+  }
+  if (!btStatus) {
+    desc.textContent = '当前环境不支持蓝牙';
+    btSwitch.el.disabled = true;
+    btSwitch.setChecked(false);
+    if (addRow) addRow.classList.add('is-disabled');
+    if (addBtn) addBtn.disabled = true;
+    return;
+  }
+  const enabled = !!btStatus.enabled;
+  btSwitch.el.disabled = btBusy;
+  btSwitch.setChecked(enabled);
+  if (addRow) addRow.classList.toggle('is-disabled', !enabled);
+  if (addBtn) addBtn.disabled = !enabled;
+  if (btBusy) {
+    desc.textContent = enabled ? '正在关闭…' : '正在开启…';
+  } else if (enabled) {
+    desc.textContent = '已开启，可连接已配对设备';
+  } else {
+    desc.textContent = '已关闭';
+  }
+}
+
+async function setBtPower(enabled) {
+  if (btBusy) return;
+  btBusy = true;
+  setBtHint('');
+  renderBtStatus();
+  try {
+    const r = await window.electronAPI.system.toggleBluetooth();
+    if (r && r.success) {
+      setBtHint('');
+    } else if (r && r.error === 'admin_required') {
+      setBtHint('切换蓝牙需要管理员权限，请以管理员身份运行 AmengUI', 'error');
+    } else if (r && r.error === 'toggle_failed') {
+      setBtHint('切换失败，请稍后重试', 'error');
+    } else {
+      setBtHint('切换蓝牙失败', 'error');
+    }
+  } catch (err) {
+    console.error('[蓝牙] 切换失败:', err);
+    setBtHint('切换蓝牙失败', 'error');
+  } finally {
+    btBusy = false;
+    await loadBluetooth();
+  }
+}
+
+function formatBtClass(classHex) {
+  let v = parseInt(String(classHex || '').replace(/^0x/i, ''), 16);
+  if (isNaN(v)) v = parseInt(String(classHex || '0'), 10);
+  if (isNaN(v)) return '—';
+  const major = (v >> 8) & 0x1f;
+  const map = {
+    1: '计算机',
+    2: '手机',
+    3: '网络设备',
+    4: '音频',
+    5: '输入设备',
+    6: '成像设备',
+    7: '可穿戴设备',
+    8: '玩具',
+  };
+  return map[major] || '其他设备';
+}
+
+function renderBtDevices() {
+  const list = document.getElementById('bt-device-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!btStatus) {
+    list.innerHTML = '<div class="network-status-msg">当前环境不支持蓝牙</div>';
+    return;
+  }
+  if (!btStatus.enabled) {
+    list.innerHTML = '<div class="network-status-msg">先开启蓝牙以查看设备</div>';
+    return;
+  }
+  if (!btDevices.length) {
+    list.innerHTML = '<div class="network-status-msg">未找到已配对的蓝牙设备</div>';
+    return;
+  }
+  const sorted = btDevices.slice().sort((a, b) => {
+    const ac = a.status === 'connected' ? 0 : 1;
+    const bc = b.status === 'connected' ? 0 : 1;
+    if (ac !== bc) return ac - bc;
+    return String(a.name).localeCompare(String(b.name), 'zh');
+  });
+  sorted.forEach((device) => {
+    const card = document.createElement('div');
+    card.className = 'bt-device-card';
+
+    const row = document.createElement('div');
+    row.className = 'bt-device-row clickable';
+    row.setAttribute('role', 'button');
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('aria-expanded', 'false');
+
+    const icon = document.createElement('span');
+    icon.className = 'bt-device-icon';
+    icon.innerHTML = BT_ICON;
+    row.appendChild(icon);
+
+    const name = document.createElement('span');
+    name.className = 'bt-device-name';
+    name.textContent = device.name;
+    name.title = device.name;
+    row.appendChild(name);
+
+    const state = document.createElement('span');
+    state.className = 'network-state' + (device.status === 'connected' ? ' connected' : '');
+    state.textContent = device.status === 'connected' ? '已连接' : '未连接';
+    row.appendChild(state);
+
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    const isConnected = device.status === 'connected';
+    actionBtn.className = 'network-action-btn ' + (isConnected ? 'disconnect' : 'connect');
+    actionBtn.textContent = isConnected ? '断开' : '连接';
+    actionBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      btDeviceAction(device, !isConnected, actionBtn);
+    });
+    row.appendChild(actionBtn);
+
+    const chevron = document.createElement('span');
+    chevron.className = 'card-chevron expander-chevron';
+    chevron.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12" aria-hidden="true">' +
+      '<path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>';
+    row.appendChild(chevron);
+
+    const expander = document.createElement('div');
+    expander.className = 'expander-content';
+    const inner = document.createElement('div');
+    inner.className = 'expander-inner';
+    const info = document.createElement('div');
+    info.className = 'bt-device-info';
+    const actions = document.createElement('div');
+    actions.className = 'bt-device-actions';
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'win-btn bt-remove-btn';
+    removeBtn.textContent = '移除设备';
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      btRemoveDevice(device);
+    });
+    actions.appendChild(removeBtn);
+    inner.appendChild(info);
+    inner.appendChild(actions);
+    expander.appendChild(inner);
+
+    let infoLoaded = false;
+    const toggle = () => {
+      const open = expander.classList.toggle('open');
+      row.classList.toggle('expanded', open);
+      row.setAttribute('aria-expanded', String(open));
+      if (open && !infoLoaded) {
+        infoLoaded = true;
+        loadBtDeviceInfo(device, info);
+      }
+    };
+    row.addEventListener('click', toggle);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    });
+
+    card.appendChild(row);
+    card.appendChild(expander);
+    list.appendChild(card);
+  });
+}
+
+async function loadBtDeviceInfo(device, container) {
+  container.innerHTML = '<div class="bt-info-loading">正在读取设备信息…</div>';
+  try {
+    const info = await window.electronAPI.system.getBluetoothDeviceInfo(device.address);
+    if (!info || !info.success) {
+      container.innerHTML = '<div class="bt-info-loading">无法读取设备信息</div>';
+      return;
+    }
+    const rows = [
+      ['地址', info.address || '—'],
+      ['类别', formatBtClass(info.classOfDevice)],
+      ['已认证', info.authenticated ? '是' : '否'],
+      ['服务', (info.services && info.services.length) ? info.services.join('、') : '—'],
+    ];
+    container.innerHTML = '';
+    rows.forEach(([label, value]) => {
+      const line = document.createElement('div');
+      line.className = 'bt-info-line';
+      const l = document.createElement('span');
+      l.className = 'bt-info-label';
+      l.textContent = label;
+      const v = document.createElement('span');
+      v.className = 'bt-info-value';
+      v.textContent = value;
+      line.appendChild(l);
+      line.appendChild(v);
+      container.appendChild(line);
+    });
+  } catch (err) {
+    console.error('[蓝牙] 读取设备信息失败:', err);
+    container.innerHTML = '<div class="bt-info-loading">无法读取设备信息</div>';
+  }
+}
+
+async function btDeviceAction(device, connect, btn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = connect ? '连接中…' : '断开中…';
+  try {
+    const r = connect
+      ? await window.electronAPI.system.connectBluetoothDevice(device.address)
+      : await window.electronAPI.system.disconnectBluetoothDevice(device.address);
+    if (r && r.success) {
+      if (connect && r.connected === false) {
+        setBtHint(r.note || '已发送连接请求，但设备未建立连接（手机类设备通常在具体服务使用时才连接）');
+      } else {
+        setBtHint('');
+      }
+      await loadBluetooth();
+      return;
+    }
+    if (r && r.error === 'service_not_found') {
+      setBtHint('该设备未提供可连接的经典服务。手机类设备请使用“发送或接收文件”，或从手机发起连接。', 'error');
+    } else if (r && r.error === 'admin_required') {
+      setBtHint('需要管理员权限，请以管理员身份运行 AmengUI', 'error');
+    } else {
+      setBtHint(`操作失败：${(r && r.error) || '未知错误'}`, 'error');
+    }
+  } catch (err) {
+    console.error('[蓝牙] 设备操作失败:', err);
+    setBtHint('操作失败，请稍后重试', 'error');
+  }
+  btn.disabled = false;
+  btn.textContent = connect ? '连接' : '断开';
+}
+
+function btRemoveDevice(device) {
+  showConfirmDialog(`确定移除设备「${device.name}」吗？移除后需要重新配对才能使用。`, async () => {
+    closeConfirmDialog();
+    try {
+      const r = await window.electronAPI.system.unpairBluetoothDevice(device.address);
+      if (r && r.success) {
+        setBtHint('');
+        await loadBluetooth();
+      } else {
+        setBtHint(`移除失败：${(r && r.error) || '未知错误'}`, 'error');
+      }
+    } catch (err) {
+      console.error('[蓝牙] 移除设备失败:', err);
+      setBtHint('移除失败，请稍后重试', 'error');
+    }
+  });
+}
+
+function setBtScanMsg(message, type) {
+  const status = document.getElementById('bt-scan-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.classList.toggle('hidden', !message);
+  status.classList.toggle('success', type === 'success');
+  status.classList.toggle('error', type === 'error');
+}
+
+async function loadBtAdd() {
+  const statusEl = document.getElementById('bt-scan-status');
+  const list = document.getElementById('bt-add-list');
+  const scanBtn = document.getElementById('btn-bt-scan');
+  if (!statusEl || !list) return;
+  if (!btStatus || !btStatus.enabled) {
+    setBtScanMsg('请先开启蓝牙再扫描设备', 'error');
+    list.innerHTML = '';
+    return;
+  }
+  btScanning = true;
+  if (scanBtn) scanBtn.disabled = true;
+  setBtScanMsg('正在扫描附近的蓝牙设备…（约 10 秒）');
+  list.innerHTML = '';
+  try {
+    const res = await window.electronAPI.system.discoverBluetoothDevices();
+    const devices = (res && res.devices) || [];
+    setBtScanMsg('');
+    renderBtAddDevices(devices);
+  } catch (err) {
+    console.error('[蓝牙] 扫描失败:', err);
+    setBtScanMsg('扫描失败，请重试', 'error');
+    list.innerHTML = '';
+  } finally {
+    btScanning = false;
+    if (scanBtn) scanBtn.disabled = false;
+  }
+}
+
+function renderBtAddDevices(devices) {
+  const list = document.getElementById('bt-add-list');
+  if (!list) return;
+  btAddDevices = devices || [];
+  list.innerHTML = '';
+  if (!btAddDevices.length) {
+    list.innerHTML = '<div class="bt-scan-empty">未发现可配对的蓝牙设备<br>请确认设备已开启并处于配对模式</div>';
+    return;
+  }
+  btAddDevices.forEach((d) => {
+    const row = document.createElement('div');
+    row.className = 'bt-add-row';
+    const icon = document.createElement('span');
+    icon.className = 'bt-add-icon';
+    icon.innerHTML = BT_ICON;
+    const name = document.createElement('span');
+    name.className = 'bt-add-name';
+    name.textContent = d.name;
+    name.title = d.name;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'network-action-btn connect';
+    btn.textContent = '配对';
+    btn.addEventListener('click', () => btPairDevice(d, btn));
+    row.appendChild(icon);
+    row.appendChild(name);
+    row.appendChild(btn);
+    list.appendChild(row);
+  });
+}
+
+async function btPairDevice(device, btn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '配对中…';
+  try {
+    const r = await window.electronAPI.system.pairBluetoothDevice(device.address, '');
+    if (r && r.success) {
+      setBtScanMsg(`已配对 ${device.name}`, 'success');
+      btAddDevices = btAddDevices.filter((d) => d.address !== device.address);
+      renderBtAddDevices(btAddDevices);
+      await loadBluetooth();
+    } else if (r && r.pinRequired) {
+      openPinDialog(device);
+    } else {
+      setBtScanMsg(`配对失败：${(r && r.error) || '未知错误'}`, 'error');
+    }
+  } catch (err) {
+    console.error('[蓝牙] 配对失败:', err);
+    setBtScanMsg('配对失败，请重试', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '配对';
+  }
+}
+
+function openPinDialog(device) {
+  btPairTarget = device;
+  document.getElementById('pin-dialog-text').textContent =
+    `设备「${device.name}」需要 PIN 码，请输入设备屏幕上显示的 PIN`;
+  document.getElementById('pin-dialog-input').value = '';
+  setPinDialogStatus('');
+  document.getElementById('pin-dialog-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('pin-dialog-input').focus(), 50);
+}
+
+function closePinDialog() {
+  document.getElementById('pin-dialog-overlay').classList.add('hidden');
+  btPairTarget = null;
+}
+
+function setPinDialogStatus(message, type) {
+  const status = document.getElementById('pin-dialog-status');
+  if (!status) return;
+  status.textContent = message || '';
+  status.classList.toggle('hidden', !message);
+  status.classList.toggle('success', type === 'success');
+  status.classList.toggle('error', type === 'error');
+}
+
+async function submitPinDialog() {
+  if (!btPairTarget) return;
+  const pin = document.getElementById('pin-dialog-input').value.trim();
+  if (!pin) {
+    setPinDialogStatus('请输入 PIN 码', 'error');
+    return;
+  }
+  const okBtn = document.getElementById('btn-pin-ok');
+  okBtn.disabled = true;
+  okBtn.textContent = '配对中…';
+  try {
+    const r = await window.electronAPI.system.pairBluetoothDevice(btPairTarget.address, pin);
+    if (r && r.success) {
+      const paired = btPairTarget;
+      closePinDialog();
+      setBtScanMsg(`已配对 ${paired.name}`, 'success');
+      btAddDevices = btAddDevices.filter((d) => d.address !== paired.address);
+      renderBtAddDevices(btAddDevices);
+      await loadBluetooth();
+    } else {
+      setPinDialogStatus(`配对失败：${(r && r.error) || '未知错误'}`, 'error');
+    }
+  } catch (err) {
+    console.error('[蓝牙] 配对失败:', err);
+    setPinDialogStatus('配对失败，请重试', 'error');
+  } finally {
+    okBtn.disabled = false;
+    okBtn.textContent = '配对';
+  }
+}
+
+async function launchBtUtility(kind) {
+  try {
+    const r = await window.electronAPI.system.launchBtUtility(kind);
+    if (!r || !r.success) {
+      setBtHint(
+        kind === 'transfer' ? '当前环境不支持蓝牙文件传输' : '当前环境不支持经典蓝牙设置',
+        'error'
+      );
+    }
+  } catch (err) {
+    console.error('[蓝牙] 启动工具失败:', err);
+    setBtHint('启动失败，请稍后重试', 'error');
+  }
+}
+
+function bindBluetoothPageEvents() {
+  const openAdd = () => {
+    if (btStatus && !btStatus.enabled) {
+      setBtHint('请先开启蓝牙再添加设备');
+      return;
+    }
+    if (!btStatus) {
+      setBtHint('当前环境不支持蓝牙', 'error');
+      return;
+    }
+    navigateTo('bluetooth-add');
+  };
+  const addRow = document.getElementById('row-bt-add');
+  if (addRow) {
+    addRow.addEventListener('click', openAdd);
+    addRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openAdd();
+      }
+    });
+  }
+  const addBtn = document.getElementById('btn-bt-add');
+  if (addBtn) {
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openAdd();
+    });
+  }
+
+  const scanBtn = document.getElementById('btn-bt-scan');
+  if (scanBtn) scanBtn.addEventListener('click', loadBtAdd);
+
+  const transferRow = document.getElementById('row-bt-transfer');
+  if (transferRow) {
+    const launch = () => launchBtUtility('transfer');
+    transferRow.addEventListener('click', launch);
+    transferRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        launch();
+      }
+    });
+  }
+  const optionsRow = document.getElementById('row-bt-options');
+  if (optionsRow) {
+    const launch = () => launchBtUtility('options');
+    optionsRow.addEventListener('click', launch);
+    optionsRow.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        launch();
+      }
+    });
+  }
+
+  document.getElementById('btn-pin-cancel').addEventListener('click', closePinDialog);
+  document.getElementById('btn-pin-ok').addEventListener('click', submitPinDialog);
+  document.getElementById('pin-dialog-overlay').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closePinDialog();
+    }
+  });
+  const pinInput = document.getElementById('pin-dialog-input');
+  if (pinInput) {
+    pinInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitPinDialog();
+      }
+    });
+  }
+}
+
+/* ============================================================
+   时间和语言
+   ============================================================ */
+let timeZoneCombo = null;
+let currentTimeZoneId = '';
+let timeFormatSwitch = null;
+let timeTickTimer = null;
+
+function formatClock(now, time24h) {
+  const h = now.getHours();
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  if (time24h) return `${String(h).padStart(2, '0')}:${mm}:${ss}`;
+  const period = h >= 12 ? '下午' : '上午';
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  return `${period}${hh}:${mm}:${ss}`;
+}
+
+function updateTimeNow() {
+  const timeEl = document.getElementById('time-now');
+  const dateEl = document.getElementById('time-now-date');
+  if (!timeEl) return;
+  const now = new Date();
+  timeEl.textContent = formatClock(now, state.time24h);
+  if (dateEl) {
+    const week = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
+    dateEl.textContent = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 周${week}`;
+  }
+}
+
+function startTimeTick() {
+  const timeEl = document.getElementById('time-now');
+  if (!timeEl) return;
+  updateTimeNow();
+  if (timeTickTimer) return;
+  timeTickTimer = setInterval(updateTimeNow, 1000);
+}
+
+function stopTimeTick() {
+  if (timeTickTimer) {
+    clearInterval(timeTickTimer);
+    timeTickTimer = null;
+  }
+}
+
+function renderTimeFormatSwitch() {
+  const host = document.getElementById('time-format-host');
+  if (!host) return;
+  if (!timeFormatSwitch) {
+    timeFormatSwitch = createWinSwitch({
+      checked: state.time24h,
+      ariaLabel: '24 小时制',
+      onChange: async (checked) => {
+        state.time24h = checked;
+        updateTimeNow();
+        sendChange({ type: 'time24h', value: checked });
+        try {
+          await window.electronAPI.config.setTimeFormat24h(checked, state.account.userId);
+        } catch (err) {
+          console.error('[时间] 保存时间格式失败:', err);
+        }
+      },
+    });
+    host.appendChild(timeFormatSwitch.el);
+  } else {
+    timeFormatSwitch.setChecked(state.time24h);
+  }
+}
+
+async function setSystemTimeZone(id) {
+  const statusEl = document.getElementById('time-zone-status');
+  if (!statusEl) return;
+  statusEl.textContent = '正在设置时区…';
+  statusEl.classList.remove('hidden', 'success', 'error');
+  try {
+    const r = await window.electronAPI.system.setTimeZone(id);
+    if (r && r.success) {
+      statusEl.textContent = '时区已更新';
+      statusEl.classList.add('success');
+      const st = await window.electronAPI.system.getTimeStatus().catch(() => null);
+      if (st && st.success !== false) {
+        currentTimeZoneId = st.timezoneId || id;
+        document.getElementById('time-zone-desc').textContent = st.timezoneDisplay || st.timezoneId || '—';
+      }
+      setTimeout(() => statusEl.classList.add('hidden'), 2500);
+    } else if (r && r.error === 'admin_required') {
+      statusEl.textContent = '更改时区需要管理员权限，请以管理员身份运行 AmengUI';
+      statusEl.classList.add('error');
+      if (timeZoneCombo && currentTimeZoneId) timeZoneCombo.setValue(currentTimeZoneId);
+    } else {
+      statusEl.textContent = `设置失败：${(r && r.error) || '未知错误'}`;
+      statusEl.classList.add('error');
+    }
+  } catch (err) {
+    console.error('[时间] 设置时区失败:', err);
+    statusEl.textContent = '设置失败，请稍后重试';
+    statusEl.classList.add('error');
+  }
+}
+
+async function loadTime() {
+  startTimeTick();
+  renderTimeFormatSwitch();
+  const zoneDesc = document.getElementById('time-zone-desc');
+  const cultureDesc = document.getElementById('time-culture-desc');
+  const regionDesc = document.getElementById('time-region-desc');
+  try {
+    const st = await window.electronAPI.system.getTimeStatus();
+    if (st && st.success !== false) {
+      if (zoneDesc) zoneDesc.textContent = st.timezoneDisplay || st.timezoneId || '—';
+      if (cultureDesc) cultureDesc.textContent = st.cultureDisplay || st.culture || '—';
+      if (regionDesc) {
+        regionDesc.textContent = [st.culture, st.dateSample, st.timeSample].filter(Boolean).join(' · ');
+      }
+      currentTimeZoneId = st.timezoneId || '';
+    } else {
+      if (zoneDesc) zoneDesc.textContent = '无法读取时区信息';
+      if (cultureDesc) cultureDesc.textContent = '—';
+      if (regionDesc) regionDesc.textContent = '—';
+    }
+  } catch (err) {
+    console.error('[时间] 读取系统信息失败:', err);
+    if (zoneDesc) zoneDesc.textContent = '无法读取时区信息';
+  }
+
+  // 时区下拉（惰性构建一次，后续进入仅同步选中值）
+  const host = document.getElementById('time-zone-host');
+  if (!host) return;
+  if (!timeZoneCombo) {
+    try {
+      const zonesRes = await window.electronAPI.system.getTimeZones();
+      const zones = (zonesRes && zonesRes.zones) || [];
+      if (zones.length) {
+        const items = zones.map((z) => ({ value: z.id, label: `${z.display} (${z.id})` }));
+        timeZoneCombo = createWinComboBox(items, currentTimeZoneId || items[0].value, {
+          ariaLabel: '时区',
+          onChange: (v) => setSystemTimeZone(v),
+        });
+        host.appendChild(timeZoneCombo.el);
+      }
+    } catch (err) {
+      console.error('[时间] 读取时区列表失败:', err);
+    }
+  } else if (currentTimeZoneId) {
+    timeZoneCombo.setValue(currentTimeZoneId);
+  }
+}
+
+/* ============================================================
+   信息与更新（关于）
+   ============================================================ */
+async function loadAbout() {
+  const versionEl = document.getElementById('about-version');
+  const list = document.getElementById('about-info-list');
+  if (!versionEl || !list) return;
+  try {
+    const info = await window.electronAPI.app.getAboutInfo();
+    const dev = await window.electronAPI.settings.getDeviceInfo().catch(() => null);
+    const device = [dev && dev.manufacturer, dev && dev.model].filter(Boolean).join(' ') || info.hostname || '—';
+    const osText = info.platform === 'win32' ? `Windows ${info.release}` : `${info.platform} ${info.release}`;
+    const rows = [
+      ['版本', info.version || '—'],
+      ['Electron', info.electron || '—'],
+      ['Chromium', info.chrome || '—'],
+      ['Node.js', info.node || '—'],
+      ['设备', device],
+      ['操作系统', osText],
+    ];
+    if (info.version) versionEl.textContent = info.version;
+    list.innerHTML = '';
+    rows.forEach(([label, value]) => {
+      const row = document.createElement('div');
+      row.className = 'about-info-row';
+      const l = document.createElement('span');
+      l.className = 'about-info-label';
+      l.textContent = label;
+      const v = document.createElement('span');
+      v.className = 'about-info-value';
+      v.textContent = value;
+      row.appendChild(l);
+      row.appendChild(v);
+      list.appendChild(row);
+    });
+  } catch (err) {
+    console.error('[关于] 读取应用信息失败:', err);
+    list.innerHTML = '<div class="network-status-msg">无法读取应用信息</div>';
+  }
+}
+
+function bindAboutPageEvents() {
+  const btn = document.getElementById('btn-check-update');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const status = document.getElementById('about-update-status');
+    btn.disabled = true;
+    status.textContent = '正在检查更新…';
+    // 本地应用无更新渠道，模拟检查后提示已是最新版本
+    await sleep(1000);
+    status.textContent = '已是最新版本';
+    btn.disabled = false;
+  });
+}
+
+/* ============================================================
    窗口控制
    ============================================================ */
 function setupWindowControls() {
@@ -2574,6 +3327,9 @@ function init() {
   });
   document.querySelectorAll('[data-back-network]').forEach((btn) => {
     btn.addEventListener('click', () => navigateTo('network'));
+  });
+  document.querySelectorAll('[data-back-bluetooth]').forEach((btn) => {
+    btn.addEventListener('click', () => navigateTo('bluetooth'));
   });
 
   // 高级管理返回账户页
@@ -2745,8 +3501,7 @@ function init() {
     }
   });
 
-  // 重命名对话框
-  document.getElementById('btn-rename').addEventListener('click', openRenameDialog);
+  // 重命名对话框（入口按钮已隐藏，保留对话框供后续重新开放）
   document.getElementById('btn-dialog-cancel').addEventListener('click', closeRenameDialog);
   document.getElementById('btn-dialog-ok').addEventListener('click', () => {
     const input = document.getElementById('dialog-input');
@@ -2768,6 +3523,10 @@ function init() {
   bindAccountPageEvents();
   // 网络和Internet：状态 / 可用网络 / 管理已知网络
   bindNetworkPageEvents();
+  // 蓝牙和其他设备：开关 / 设备列表 / 添加设备
+  bindBluetoothPageEvents();
+  // 信息与更新：检查更新
+  bindAboutPageEvents();
 
   // 主进程下发主题与账户信息
   window.electronAPI.settings.onTheme((data) => {
@@ -2785,6 +3544,11 @@ function init() {
     if (data.notifyApps !== undefined) state.notifyApps = data.notifyApps !== false;
     if (data.notifySystem !== undefined) state.notifySystem = data.notifySystem !== false;
     if (data.notifyDnd !== undefined) state.notifyDnd = !!data.notifyDnd;
+    if (typeof data.time24h === 'boolean') {
+      state.time24h = data.time24h;
+      if (timeFormatSwitch) timeFormatSwitch.setChecked(state.time24h);
+      updateTimeNow();
+    }
     if (data.deviceName) state.deviceName = data.deviceName;
     if (data.account) {
       state.account = { ...state.account, ...data.account };

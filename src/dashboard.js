@@ -8,6 +8,9 @@ let currentTheme = 'dark';
 // 任务栏状态
 let isTaskbarFloating = true;
 
+// 时间显示格式（true=24 小时制，false=12 小时制）
+let time24h = true;
+
 // 剪贴板状态：null | { mode: 'copy'|'cut', app: Object }
 let clipboard = null;
 
@@ -59,6 +62,10 @@ async function initTheme() {
       }
       if (settings.displayProfile) {
         applyDisplayProfile(settings.displayProfile);
+      }
+      if (typeof settings.time24h === 'boolean') {
+        time24h = settings.time24h;
+        updateTime();
       }
     }
   } catch (error) {
@@ -349,6 +356,10 @@ window.electronAPI.settings.onChange(async (change) => {
       isTaskbarFloating = change.value;
       applyTaskbarMode();
       await persistTaskbarMode();
+      break;
+    case 'time24h':
+      time24h = !!change.value;
+      updateTime();
       break;
     case 'desktopBackground':
       if (change.value) {
@@ -786,9 +797,15 @@ function updateTime() {
   const dateDisplay = document.getElementById('date-display');
   
   if (timeDisplay) {
-    const hours = now.getHours().toString().padStart(2, '0');
     const minutes = now.getMinutes().toString().padStart(2, '0');
-    timeDisplay.textContent = `${hours}:${minutes}`;
+    const h = now.getHours();
+    if (time24h) {
+      timeDisplay.textContent = `${h.toString().padStart(2, '0')}:${minutes}`;
+    } else {
+      const period = h >= 12 ? '下午' : '上午';
+      const hh = h % 12 === 0 ? 12 : h % 12;
+      timeDisplay.textContent = `${period}${hh}:${minutes}`;
+    }
   }
   
   if (dateDisplay) {

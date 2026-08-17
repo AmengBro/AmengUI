@@ -766,7 +766,8 @@ async function getSettings(userId = null) {
       displayProfile: userConfig.profile.displayProfile || 'default',
       notifyApps: userConfig.profile.notifyApps !== false,
       notifySystem: userConfig.profile.notifySystem !== false,
-      notifyDnd: !!userConfig.profile.notifyDnd
+      notifyDnd: !!userConfig.profile.notifyDnd,
+      time24h: userConfig.profile.time24h !== false
     };
   }
   
@@ -1116,6 +1117,19 @@ async function setNotificationPref(key, value, userId) {
 }
 
 /**
+ * 设置 12/24 小时制显示偏好（true=24 小时制，false=12 小时制）
+ * @param {boolean} value
+ * @param {number} userId
+ */
+async function setTimeFormat24h(value, userId) {
+  if (userId === undefined || userId === null) return false;
+  const userConfig = await getUserConfig(userId);
+  userConfig.profile.time24h = value !== false;
+  await saveUserConfig(userId, userConfig);
+  return true;
+}
+
+/**
  * 设置用户权限
  * @param {number} userId - 用户ID
  * @param {string} permi - 权限级别：root/sudo/user
@@ -1350,6 +1364,7 @@ module.exports = {
   setTaskbarMode,
   setDisplayProfile,
   setNotificationPref,
+  setTimeFormat24h,
   setPermission,
   ensureUserDir,
   setLastLoginUserId,

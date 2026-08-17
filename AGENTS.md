@@ -1476,6 +1476,119 @@ nonBroadcast 的加密/公开两分支正确；stub preload + Electron harness �
 已知网络搜索过滤、忘记确认、属性对话框、添加网络成功/空 SSID 校验），
 渲染进程零报错；`wifiConnect` 走已有 profile 分支不受 hidden 参数影响。
 
+### 37. 设置-蓝牙和其他设备：开关 / 已配对设备 / 添加设备配对流
+
+**用户需求**：完善“蓝牙和其他设备”界面（先交付 ASCII 设计与实现思路，
+用户确认“开干”后实施）。主页面含蓝牙开关、已配对设备列表（点击整行展开
+显示属性与移除）、添加设备入口、相关设置；添加设备为独立子页（扫描→配对，
+需要 PIN 时弹窗输入）。
+
+**实现方案**：
+- 后端 `sys.ps1` **零新增**：bluetoothStatus/bluetoothToggle/btDevices/
+  btDiscover/btPair/btUnpair/btInfo/btConnect/btDisconnect 全部已有
+- 主进程/preload：仅新增 `system:launchBtUtility(kind)`——
+  `transfer` 启动 `fsquirt.exe`（蓝牙文件传输向导）、`options` 启动
+  `bthprops.cpl`（经典蓝牙设置面板）；先 `where` 探测存在性，PE 缺失时返回
+  `not_found` 由 UI 提示
+- 设置 UI（settings.html/js/css）：
+  - 主页面 `bluetooth`：WinUI 开关（乐观更新；非管理员切换返回
+    `admin_required` 时行内红色提示并回读真实状态）、状态描述、添加设备卡片
+    （蓝牙关闭时置灰，点击提示“请先开启蓝牙”）、已配对设备列表（卡片行：
+    图标+名称+状态+行内连接/断开按钮+展开箭头）、相关设置两行
+  - 设备行点击整行展开（复用 0fr→1fr expander），首次展开惰性调 `btInfo`
+    显示 地址/类别/已认证/服务，展开区右侧 [移除设备]（复用确认弹窗 →
+    `unpair`）
+  - 类别解析：`classOfDevice` 取 major class 位映射中文（计算机/手机/音频/
+    输入设备等），兼容 `0x` 十六进制与十进制字符串
+  - 连接/断开：服务连接优先；`service_not_found` 显示引导文案（手机类设备
+    使用“发送或接收文件”）；BLE `admin_required` 提示管理员权限
+  - 子页 `bluetooth-add`（SUB_PAGES 新增）：进入即 `btDiscover`（约 10 秒，
+    spinner 文案），每行 [配对]→`pair(address,'')`；返回 `pinRequired` 时弹
+    PIN 输入框（眼睛显示按钮+Enter 提交）→ 带 pin 重试；配对成功从当前
+    未配对列表即时移除并刷新主页（避免 30 秒扫描缓存导致的重复扫描）
+  - 设备排序：已连接优先，其余按名称（zh localeCompare）
+
+**实测**：stub preload + Electron harness 断言通过——主页渲染（3 台设备、
+已连接排前、行内 断开/连接）、展开惰性加载属性（地址/类别“音频”/已认证/
+服务）、移除确认、断开后状态刷新、添加设备子页扫描 2 台未配对设备、
+配对成功从列表移除、PIN 弹窗显隐与提交、蓝牙关闭态（列表占位/添加置灰/
+点击提示不跳转）、`admin_required` 提示且开关回读真实状态；渲染进程零报错。
+真实后端 `bluetoothStatus`/`btDevices` 在本机可运行（蓝牙可用）。
+
+### 38. 设置菜单精简 + 时间和语言页
+
+**用户需求**：删除设置菜单中的“游戏 / 辅助功能 / 隐私和安全性”，完善
+“时间和语言”菜单。
+
+**实现方案**：
+- 菜单精简：NAV_ITEMS 删除 gaming/accessibility/privacy 三项（页面本就是
+  `ensurePage` 空占位，无其他引用，删除后不再生成）
+- 后端 `sys.ps1` 新增三个命令：
+  - `timeStatus`：当前时间（ISO）、时区 Id/DisplayName、区域语言
+    （culture/cultureDisplay/日期与时间样例），并用 ShortTimePattern 是否含
+    `t`（AM/PM 标记）判定系统 12/24 小时制
+  - `timeZones`：`Get-TimeZone -ListAvailable` 全量时区（进程内 10 分钟缓存，
+    本机 139 个，含中文显示名）
+  - `setTimeZone(id)`：`Set-TimeZone -Id`，非管理员直接返回 `admin_required`
+- 配置持久化：`config.getSettings` 新增 `time24h`（profile.time24h，默认 true
+  = 24 小时制）；新增 `setTimeFormat24h` 写入用户 config.json
+- IPC/preload：`system:getTimeStatus` / `getTimeZones` / `setTimeZone`、
+  `config:setTimeFormat24h`；设置窗口 `settings:theme` 下发增加 `time24h`
+- 设置 UI（settings.html/js/css）：
+  - 大时钟卡片（每秒刷新，跟随 12/24 小时制；12 小时制显示“下午6:06”式中文
+    时段）
+  - 时区行：WinUI ComboBox（全量时区，label=显示名+Id），切换调 `setTimeZone`，
+    成功显示“时区已更新”，`admin_required` 红色提示并把下拉回写原值
+  - 24 小时制开关：切换即改任务栏时钟（经 `settings:change` 广播）并写入
+    `profile.time24h`；`time24h` 通过 `settings:theme` 下发到设置页同步开关态
+  - 语言和区域：只读展示 显示语言（cultureDisplay）与区域格式
+    （culture + 日期/时间样例）——系统语言/区域格式切换涉及注册表与重启，
+    不做假开关
+- 任务栏时钟联动（dashboard.js）：`updateTime` 读取 `time24h` 标志，12 小时制
+  显示“上午/下午h:mm”；initTheme 从 getSettings 读取，onChange 响应
+  `time24h` 变更即时更新
+
+**实测**：后端 CLI——`timeStatus` 返回正确（China Standard Time / zh-CN /
+18:03 24h），`timeZones` 返回全量 139 时区，`setTimeZone` 非管理员返回
+`admin_required`；stub preload + Electron harness——导航项删除三项且保留
+“时间和语言”、时钟/日期渲染、12 小时制切换（时钟变“下午6:06”、广播
+`time24h:false`、config 落盘）、时区下拉 3 项可选、设置成功“时区已更新”、
+`admin_required` 错误提示且下拉回写原值；渲染进程零报错。
+
+### 39. “Windows 更新”改名“信息与更新”+ 关于 UI
+
+**用户需求**：导航项“Windows 更新”改为“信息与更新”；日期与时间页时钟
+增加秒数与日期显示；“信息与更新”提供简单的“关于 UI”。
+
+**实现方案**：
+- NAV_ITEMS：`update` 项 label 改为“信息与更新”（图标保留）
+- 时钟：`formatClock` 增加秒（24h=`HH:MM:SS`，12h=`下午h:MM:SS`），
+  日期行（X年X月X日 周X）继续每秒同步
+- 新增 `app:getAboutInfo` IPC（主进程）：返回 name/version
+  （`app.getVersion()`）/description/electron/chrome/node/platform/arch/
+  release/hostname；preload 暴露 `app.getAboutInfo()`
+- 设置页 `update`（原自动空占位）改为真实页面：
+  - 关于卡片：AmengUI logo + 名称 + 描述 + 版本
+  - 应用信息列表：版本 / Electron / Chromium / Node.js / 设备
+    （复用 settings:getDeviceInfo 的厂商+型号，回退主机名）/ 操作系统
+    （Windows + os.release）
+  - 更新区：检查更新按钮——本地应用无更新渠道，点击后“正在检查更新…”
+    →“已是最新版本”（按钮期间禁用）
+
+**实测**：stub preload + Electron harness——导航含“信息与更新”且无
+“Windows 更新”；时钟 `18:14:05`（HH:MM:SS）与日期行正确；关于页渲染
+（AmengUI / 1.0.0 / 描述 / 6 行应用信息含设备与操作系统）；检查更新
+按钮流程（禁用→已是最新版本→恢复）；渲染进程零报错。
+
+### 40. 隐藏“更改计算机名称”入口
+
+**用户需求**：将“更改计算机名称”功能设为不开放，隐藏入口按钮。
+
+**实现**：主页设备卡上的“重命名”按钮（`btn-rename`）从 HTML 移除，并删除
+对应的 JS 绑定（`btn-rename` 不存在会导致 init 抛 TypeError）。重命名对话框
+（`dialog-overlay`）与 `openRenameDialog` 保留为不可达代码，便于后续重新开放
+时恢复；设备名称/型号仍照常展示。
+
 ## 三、待解决问题与未来方向
 
 ### 已知不足

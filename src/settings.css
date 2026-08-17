@@ -2189,3 +2189,287 @@ body {
   word-break: break-all;
   min-width: 0;
 }
+
+/* ============================================================
+   蓝牙和其他设备
+   ============================================================ */
+.bt-add-btn {
+  flex-shrink: 0;
+}
+
+.card-row.is-disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.card-row.is-disabled:hover {
+  background: transparent;
+}
+
+.bt-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bt-device-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: var(--ControlCornerRadius);
+}
+
+.bt-device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 14px;
+  border-radius: var(--ControlCornerRadius);
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.bt-device-row:hover {
+  background: var(--subtle-secondary);
+}
+
+.bt-device-row:active {
+  background: var(--subtle-pressed);
+}
+
+.bt-device-icon {
+  flex: 0 0 18px;
+  display: flex;
+  align-items: center;
+  color: var(--accent-base);
+}
+
+.bt-device-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-device-info {
+  padding: 2px 16px 8px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bt-info-line {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.bt-info-label {
+  flex: 0 0 40px;
+  color: var(--text-secondary);
+}
+
+.bt-info-value {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.bt-info-loading {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+}
+
+.bt-device-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 16px 12px 44px;
+}
+
+.bt-remove-btn {
+  color: var(--system-critical);
+}
+
+.bt-remove-btn:hover {
+  background: var(--subtle-secondary);
+}
+
+/* 添加设备子页 */
+.bt-scan-status {
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.bt-scan-status.success {
+  color: var(--system-success);
+}
+
+.bt-scan-status.error {
+  color: var(--system-critical);
+}
+
+.bt-refresh-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bt-add-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bt-add-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: var(--ControlCornerRadius);
+  transition: background var(--fast-duration) var(--fast-out-slow-in);
+}
+
+.bt-add-row:hover {
+  background: var(--card-bg-secondary);
+}
+
+.bt-add-icon {
+  flex: 0 0 18px;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+}
+
+.bt-add-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-scan-empty {
+  padding: 28px 16px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  text-align: center;
+  background: var(--card-bg);
+  border: 1px solid var(--card-stroke);
+  border-radius: var(--ControlCornerRadius);
+}
+
+/* ============================================================
+   时间和语言
+   ============================================================ */
+.time-now-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 20px 16px;
+}
+
+.time-now {
+  font-size: 44px;
+  line-height: 56px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+}
+
+.time-now-date {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-secondary);
+}
+
+#time-zone-host .win-combo {
+  flex-shrink: 0;
+}
+
+#time-zone-status {
+  padding: 0 16px 12px;
+  margin-top: 0;
+}
+
+/* ============================================================
+   信息与更新（关于）
+   ============================================================ */
+.about-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.about-logo {
+  color: var(--accent-base);
+  margin-bottom: 4px;
+}
+
+.about-name {
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 600;
+}
+
+.about-desc {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.about-version {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-tertiary);
+}
+
+.about-info-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.about-info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--card-stroke);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.about-info-row:last-child {
+  border-bottom: none;
+}
+
+.about-info-label {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.about-info-value {
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-all;
+  min-width: 0;
+}

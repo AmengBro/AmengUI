@@ -452,6 +452,10 @@ ipcMain.handle('config:setNotificationPref', async (_, key, value, userId) => {
   return await config.setNotificationPref(key, value, userId);
 });
 
+ipcMain.handle('config:setTimeFormat24h', async (_, value, userId) => {
+  return await config.setTimeFormat24h(value, userId);
+});
+
 ipcMain.handle('config:setLastLoginUserId', async (_, userId) => {
   return await config.setLastLoginUserId(userId);
 });
@@ -1048,6 +1052,7 @@ async function openSettingsWindow(settingsData = {}) {
     let notifyApps = true;
     let notifySystem = true;
     let notifyDnd = false;
+    let time24h = true;
     try {
       const settings = await config.getSettings(account.userId);
       loginBackground = settings.loginBackground || null;
@@ -1055,6 +1060,7 @@ async function openSettingsWindow(settingsData = {}) {
       notifyApps = settings.notifyApps !== false;
       notifySystem = settings.notifySystem !== false;
       notifyDnd = !!settings.notifyDnd;
+      time24h = settings.time24h !== false;
     } catch {}
     settingsWindow.webContents.send('settings:theme', {
       theme,
@@ -1066,6 +1072,7 @@ async function openSettingsWindow(settingsData = {}) {
       notifyApps,
       notifySystem,
       notifyDnd,
+      time24h,
       deviceName: os.hostname(),
       account,
     });
@@ -1137,6 +1144,22 @@ ipcMain.handle('settings:getDeviceInfo', async () => {
     });
   }
   return deviceInfoPromise;
+});
+
+// 关于信息（版本 / 运行时 / 系统）
+ipcMain.handle('app:getAboutInfo', async () => {
+  return {
+    name: 'AmengUI',
+    version: app.getVersion(),
+    description: '类 Unix 风格的 Windows 桌面环境模拟器',
+    electron: process.versions.electron || '',
+    chrome: process.versions.chrome || '',
+    node: process.versions.node || '',
+    platform: process.platform || '',
+    arch: process.arch || '',
+    release: os.release() || '',
+    hostname: os.hostname() || '',
+  };
 });
 
 // ==================== 高级管理：新建用户独立窗口 ====================
@@ -2906,6 +2929,26 @@ ipcMain.handle('system:toggleBluetooth', async () => {
   }
 });
 
+ipcMain.handle('system:launchBtUtility', async (_, kind) => {
+  // kind: transfer=蓝牙文件传输向导(fsquirt.exe) / options=经典蓝牙设置(bthprops.cpl)
+  const target = kind === 'transfer' ? 'fsquirt.exe' : 'bthprops.cpl';
+  try {
+    try {
+      await execAsync(`where ${target}`);
+    } catch (e) {
+      return { success: false, error: 'not_found' };
+    }
+    const child = spawn(target, [], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', (err) => {
+      console.error('[蓝牙] 启动工具失败:', err);
+    });
+    child.unref();
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('system:toggleFlightMode', async () => {
   try {
     // 切换需轮询等待全部无线电状态收敛（最长 15 秒），给足超时
@@ -3064,6 +3107,30 @@ ipcMain.handle('system:getBluetoothDeviceInfo', async (_, address) => {
 ipcMain.handle('system:forgetWifi', async (_, ssid) => {
   try {
     return await sysServer.command('wifiForget', [String(ssid || '')], 20000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getTimeStatus', async () => {
+  try {
+    return await sysServer.command('timeStatus', [], 15000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:getTimeZones', async () => {
+  try {
+    return await sysServer.command('timeZones', [], 30000);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('system:setTimeZone', async (_, id) => {
+  try {
+    return await sysServer.command('setTimeZone', [String(id || '')], 30000);
   } catch (e) {
     return { success: false, error: e.message };
   }
