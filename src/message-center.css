@@ -1,0 +1,275 @@
+/* ============================================================
+   独立消息面板（分体窗口，位于日历面板上方，更高更宽敞）
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 消息容器（占满整个透明窗口） */
+.msg-popup {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: rgba(40, 40, 40, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  padding: 16px;
+  overflow: hidden;
+  animation: slideUp 0.15s ease-out;
+}
+
+body.theme-bright .msg-popup {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+/* 滑入动画 */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.msg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.theme-bright .msg-header {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.msg-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: white;
+}
+
+.msg-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  background: var(--accent-color);
+  border-radius: 10px;
+  padding: 1px 8px;
+  display: none;
+}
+
+.msg-count.visible {
+  display: inline-block;
+}
+
+.msg-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.msg-action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.msg-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.msg-action-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+
+.msg-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 2px;
+}
+
+.msg-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.msg-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+
+.msg-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.msg-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.msg-item.unread {
+  border-left-color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+
+.msg-item-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 16px;
+  overflow: hidden;
+}
+
+.msg-item-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.msg-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-item-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+}
+
+.msg-item-time {
+  font-size: 10px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+}
+
+.msg-item-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+.msg-empty {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+body.theme-bright .msg-title {
+  color: #333;
+}
+
+body.theme-bright .msg-action-btn {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+body.theme-bright .msg-action-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.85);
+}
+
+body.theme-bright .msg-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+body.theme-bright .msg-item {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+body.theme-bright .msg-item:hover {
+  background: rgba(0, 0, 0, 0.09);
+}
+
+body.theme-bright .msg-item.unread {
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+}
+
+body.theme-bright .msg-item-icon {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.75);
+}
+
+body.theme-bright .msg-item-title {
+  color: #333;
+}
+
+body.theme-bright .msg-item-time {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+body.theme-bright .msg-item-text {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+body.theme-bright .msg-empty {
+  color: rgba(0, 0, 0, 0.45);
+  border-color: rgba(0, 0, 0, 0.12);
+}

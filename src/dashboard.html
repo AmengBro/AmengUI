@@ -26,6 +26,13 @@
     
     <!-- 时间显示 -->
     <div class="taskbar-time-container">
+      <!-- 有新消息时显示在时间左侧的铃铛（仅指示，点击时间按钮打开消息面板） -->
+      <span class="taskbar-msg-indicator" id="taskbar-msg-indicator" title="有新消息" style="display:none">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+        </svg>
+        <span class="taskbar-msg-dot"></span>
+      </span>
       <!-- 控制中心图标（Windows 11 风格：三图标合一按钮） -->
       <button class="control-center-btn" id="btn-control-center" title="网络、音量、电池">
         <svg viewBox="0 0 24 24" fill="currentColor" title="网络">

@@ -10,6 +10,7 @@ const fs = require('fs').promises;
 const { exec, spawn, spawnSync } = require('child_process');
 const { promisify } = require('util');
 const config = require('./config');
+const notifications = require('./notifications');
 const { getPathConverter } = require('./amsys/converter');
 
 const PWSH_PATH = config.PWSH_PATH;
@@ -44,18 +45,18 @@ const SYS_SCRIPT = path.join(SCRIPTS_DIR, 'sys.ps1');
 
 function getAppRoot() {
   const isPackaged = app?.isPackaged || false;
-  
+
   if (!isPackaged) {
     return path.join(__dirname, '..');
   }
-  
+
   const exePath = process.execPath;
   const appRoot = path.dirname(exePath);
-  
+
   if (appRoot.endsWith('resources')) {
     return path.join(appRoot, '..');
   }
-  
+
   return appRoot;
 }
 
@@ -67,7 +68,7 @@ const APP_ROOT = getAppRoot();
  */
 async function forceWindowToBottom(hwnd) {
   if (process.platform !== 'win32') return;
-  
+
   const os = require('os');
   const scriptContent = `param(
     [Parameter(Mandatory=$true)]
@@ -101,18 +102,18 @@ if ($result) {
     Write-Host "Failed to set window to bottom"
     [System.Environment]::Exit(1)
 }`;
-  
+
   try {
     const tempDir = os.tmpdir();
     const scriptPath = path.join(tempDir, `amengui_setbottom_${hwnd}_${Date.now()}.ps1`);
-    
+
     await fs.writeFile(scriptPath, scriptContent, 'utf-8');
-    
+
     // 复用 getPwshPath()：内置 pwsh7 → 系统 pwsh（PATH）→ 系统 powershell，避免硬依赖 PS5
     const powershellExe = `"${await getPwshPath()}"`;
-    
+
     const command = `${powershellExe} -ExecutionPolicy Bypass -File "${scriptPath}" -hwnd ${hwnd}`;
-    
+
     const { stdout, stderr } = await execAsync(command);
   } catch (error) {
     console.error('PowerShell execution failed:', error.message);
@@ -130,12 +131,12 @@ if ($result) {
  */
 async function forceWindowToBottomWithNircmd(hwnd) {
   if (process.platform !== 'win32') return;
-  
+
   try {
     // 尝试使用 nircmd（如果可用）
     const nircmdPath = 'nircmd.exe';
     const command = `"${nircmdPath}" win settopmost handle ${hwnd} 0`;
-    
+
     try {
       const { stdout, stderr } = await execAsync(command);
     } catch (e) {
@@ -194,7 +195,7 @@ const createWindow = () => {
 
   // 加载登录界面
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  
+
   // 打开开发者工具（调试用）
   mainWindow.webContents.openDevTools();
 
@@ -233,11 +234,11 @@ async function setWindowToBottom(window = mainWindow) {
   if (!window || window.isDestroyed()) return;
   // 隐藏中的窗口不处理：置底脚本带 SWP_SHOWWINDOW 标志，会误把 Shell 模式下隐藏的界面重新显示
   if (!window.isVisible()) return;
-  
+
   try {
     // 方法1: 通过 PowerShell 调用 Windows API
     const hwnd = window.getNativeWindowHandle();
-    
+
     // 正确获取窗口句柄（兼容 32 位和 64 位系统）
     let hwndNumber;
     if (hwnd.length === 8) {
@@ -247,13 +248,13 @@ async function setWindowToBottom(window = mainWindow) {
       // 32 位系统
       hwndNumber = hwnd.readUInt32LE(0);
     }
-    
+
     // 调用 PowerShell 脚本
     await forceWindowToBottom(hwndNumber);
-    
+
     // 额外尝试 nircmd 方法
     await forceWindowToBottomWithNircmd(hwndNumber);
-    
+
   } catch (error) {
     console.error('Error setting window to bottom:', error.message);
     console.error('Error stack:', error.stack);
@@ -266,10 +267,10 @@ async function setWindowToBottom(window = mainWindow) {
 function forceWindowToBottomDelayed() {
   setTimeout(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    
+
     const hwnd = mainWindow.getNativeWindowHandle();
     const hwndNumber = hwnd.readUInt32LE(0); // 正确获取 32 位窗口句柄
-    
+
     // 使用 Windows API 强制置底
     forceWindowToBottom(hwndNumber);
   }, 500);
@@ -284,6 +285,14 @@ app.whenReady().then(async () => {
   createWindow();
   // 后台预热：启动音频/系统常驻服务并预取能力，避免用户打开控制中心时冷启动等待
   prewarmSystemServices();
+  // 首次运行投放欢迎通知（存储文件不存在时）
+  fs.access(notifications.STORE_PATH).catch(() => {
+    emitNotification({
+      source: 'system',
+      title: '欢迎使用 AmengUI',
+      body: '系统通知会显示在这里，可前往 设置 → 系统 → 通知 调整偏好。',
+    });
+  });
 
   // macOS 特性：点击 dock 图标时重新创建窗口
   app.on('activate', () => {
@@ -300,7 +309,7 @@ async function initConfig() {
   try {
     // 迁移旧版 ./config 数据到 amsys 虚拟根 /etc/system/core（含 tar 归档）
     await config.migrateLegacyConfig();
-    
+
     // /etc/passwd 与 /etc/shadow 为权威：
     // 1) 缺失时初始化 root；2) 用户配置目录按 UID 重映射（一次性）；
     // 3) 从认证文件重建 users.json 聚合视图并刷新各 config.json 的 login 块
@@ -309,18 +318,18 @@ async function initConfig() {
     await config.syncUsersFromPasswdShadow();
 
     const users = await config.getUsers();
-    
+
     // 为所有现有用户创建配置目录
     for (const user of users) {
       await config.ensureUserDir(user.userid);
     }
-    
+
     // 迁移旧的 settings.json 到第一个用户的配置（如果存在旧数据且用户目录没有配置）
     const oldSettingsPath = path.join(config.CONFIG_DIR, 'settings.json');
     try {
       const oldData = await fs.readFile(oldSettingsPath, 'utf8');
       const oldSettings = JSON.parse(oldData);
-      
+
       if (users.length > 0 && oldSettings.background) {
         // 检查用户配置是否已存在
         const userConfig = await config.getUserConfig(users[0].userid);
@@ -552,11 +561,11 @@ ipcMain.handle('window:openDashboard', async (_, userId) => {
     const users = await config.getUsers();
     currentLoggedInUser = users.find(u => u.userid === userId);
   }
-  
+
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  
+
   const iconPath = path.join(__dirname, '../favicon.ico');
-  
+
   dashboardWindow = new BrowserWindow({
     width: width,
     height: height,
@@ -572,15 +581,15 @@ ipcMain.handle('window:openDashboard', async (_, userId) => {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-  
+
   dashboardWindow.loadFile(path.join(__dirname, 'dashboard.html'));
-  
+
   dashboardWindow.webContents.openDevTools();
-  
+
   dashboardWindow.webContents.on('did-finish-load', () => {
     console.log('Dashboard loaded, setting to bottom');
     setWindowToBottom(dashboardWindow);
-    
+
     setInterval(() => {
       if (dashboardWindow && !dashboardWindow.isDestroyed()) {
         pushDashboardToBottom();
@@ -597,7 +606,7 @@ ipcMain.handle('window:openDashboard', async (_, userId) => {
       }
     }, 200);
   });
-  
+
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();
   }
@@ -618,17 +627,17 @@ async function pushDashboardToBottom() {
 
 ipcMain.handle('window:logout', async () => {
   currentLoggedInUser = null;
-  
+
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   const iconPath = path.join(__dirname, '../favicon.ico');
-  
+
   const allWindows = BrowserWindow.getAllWindows();
   for (const win of allWindows) {
     if (!win.isDestroyed()) {
       win.close();
     }
   }
-  
+
   mainWindow = new BrowserWindow({
     width: width,
     height: height,
@@ -647,28 +656,28 @@ ipcMain.handle('window:logout', async () => {
       nodeIntegration: false
     }
   });
-  
+
   mainWindow.setPosition(0, 0);
   mainWindow.setSize(width, height);
-  
+
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  
+
   mainWindow.webContents.openDevTools();
-  
+
   mainWindow.on('show', () => {
     setWindowToBottom();
   });
-  
+
   mainWindow.webContents.on('did-finish-load', () => {
     setWindowToBottom();
   });
-  
+
   setInterval(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       setWindowToBottom();
     }
   }, 2000);
-  
+
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.key === 'Escape' && !input.control && !input.alt && !input.meta) {
       mainWindow.close();
@@ -749,6 +758,103 @@ async function resolveUserTheme(account) {
   }
   return { theme, accentColor };
 }
+
+// ==================== 通知服务（消息面板） ====================
+
+/**
+ * 解析当前用户的通知偏好（notifyApps / notifySystem / notifyDnd）
+ */
+async function resolveNotifyPrefs() {
+  try {
+    const uid = await resolveCurrentUserId();
+    const settings = await config.getSettings(uid);
+    return {
+      app: settings.notifyApps !== false,
+      system: settings.notifySystem !== false,
+      dnd: !!settings.notifyDnd,
+    };
+  } catch {
+    return { app: true, system: true, dnd: false };
+  }
+}
+
+/**
+ * 组装下发给各窗口的通知列表数据（已按偏好过滤，未读在前）
+ */
+async function getNotifyListData() {
+  const prefs = await resolveNotifyPrefs();
+  const all = await notifications.listAll();
+  const items = all
+    .filter((n) => {
+      if (n.source === 'app' && !prefs.app) return false;
+      if (n.source === 'system' && !prefs.system) return false;
+      return true;
+    })
+    .sort((a, b) => (a.read === b.read ? b.time - a.time : a.read ? 1 : -1));
+  const unread = items.filter((n) => !n.read).length;
+  return { items, unread };
+}
+
+/**
+ * 广播通知列表到桌面与消息/日历面板窗口（存储变化后调用）
+ */
+async function broadcastNotifications() {
+  const data = await getNotifyListData();
+  const wins = [dashboardWindow, calendarWindow, messageWindow].filter((w) => w && !w.isDestroyed());
+  for (const win of wins) {
+    win.webContents.send('notify:list', data);
+  }
+}
+
+/**
+ * 产生一条系统/应用通知：按偏好过滤，请勿打扰时直接标记已读（静音）
+ * @returns {Promise<object|null>} 保存的通知，被过滤时返回 null
+ */
+async function emitNotification(payload) {
+  const prefs = await resolveNotifyPrefs();
+  const source = payload.source === 'app' ? 'app' : 'system';
+  if (source === 'app' && !prefs.app) return null;
+  if (source === 'system' && !prefs.system) return null;
+  const item = await notifications.add({ ...payload, source, read: prefs.dnd });
+  broadcastNotifications();
+  return item;
+}
+
+// 通知存储变化 → 广播（新增/标记已读/清空统一走这里）
+notifications.setChangeListener(() => {
+  broadcastNotifications();
+});
+
+// 通知 IPC
+ipcMain.handle('notify:list', async () => {
+  return await getNotifyListData();
+});
+
+ipcMain.handle('notify:dismiss', async (_, id) => {
+  await notifications.dismiss(String(id || ''));
+  return { success: true };
+});
+
+ipcMain.handle('notify:dismissAll', async () => {
+  await notifications.dismissAll();
+  return { success: true };
+});
+
+ipcMain.handle('notify:clear', async () => {
+  await notifications.clearAll();
+  return { success: true };
+});
+
+ipcMain.handle('notify:send', async (_, payload = {}) => {
+  const item = await emitNotification({
+    source: payload.source || 'system',
+    appName: payload.appName,
+    title: payload.title,
+    body: payload.body,
+    icon: payload.icon,
+  });
+  return { success: !!item, item };
+});
 
 /**
  * 任务栏上沿高度：浮动任务栏 bottom 8px + 高 48px；停靠任务栏 bottom 0 + 高 48px
@@ -901,8 +1007,9 @@ function notifyStartMenuRefresh() {
   }
 }
 
-// ---- 日历窗口 ----
+// ---- 日历窗口 + 消息面板（分体：日历在下，消息面板为其上方的独立窗口） ----
 let calendarHideTimer = null;
+let messageWindow = null;
 
 function positionCalendarWindow(isFloating) {
   if (!calendarWindow || calendarWindow.isDestroyed()) return;
@@ -918,6 +1025,93 @@ async function pushCalendarTheme() {
   const { theme, accentColor } = await resolveUserTheme(account);
   if (calendarWindow && !calendarWindow.isDestroyed()) {
     calendarWindow.webContents.send('calendar:theme', { theme, accentColor });
+  }
+}
+
+async function pushMessageTheme() {
+  const account = await resolveAccount();
+  const { theme, accentColor } = await resolveUserTheme(account);
+  if (messageWindow && !messageWindow.isDestroyed()) {
+    messageWindow.webContents.send('message:theme', { theme, accentColor });
+  }
+}
+
+/**
+ * 消息面板（分体窗口）：位于日历窗口正上方，右侧对齐；
+ * 高度适中且按屏幕可用空间收缩，绝不遮住日历、不顶到屏幕顶端
+ */
+function positionMessageWindow(isFloating) {
+  if (!messageWindow || messageWindow.isDestroyed()) return;
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const W = 280;
+  // 顶部留白：消息面板绝不顶到屏幕顶端
+  const TOP_MARGIN = 16;
+  const taskbarTop = getTaskbarTop(isFloating);
+  // 日历窗口上沿：消息面板悬于其上方
+  const calH = 384;
+  const calTop = Math.max(0, height - calH - taskbarTop - 8);
+  // 可用高度 = 日历上沿与顶部留白之间；取较小值保证不遮住日历
+  const maxH = Math.max(0, calTop - 8 - TOP_MARGIN);
+  const H = Math.min(360, maxH);
+  messageWindow.setSize(W, H);
+  messageWindow.setPosition(width - W - 8, Math.max(TOP_MARGIN, calTop - 8 - H));
+}
+
+/**
+ * 两个浮层窗口（日历/消息）任一失焦时，若焦点不在另一个浮层上则一起关闭
+ */
+function scheduleOverlayHide() {
+  clearTimeout(calendarHideTimer);
+  calendarHideTimer = setTimeout(() => {
+    calendarHideTimer = null;
+    const focused = BrowserWindow.getFocusedWindow();
+    const overlayFocused =
+      focused && !focused.isDestroyed() &&
+      (focused === calendarWindow || focused === messageWindow);
+    if (!overlayFocused) {
+      hideCalendarWindow();
+      hideMessageWindow();
+    }
+  }, 200);
+}
+
+function showMessageWindow(isFloating) {
+  if (!messageWindow || messageWindow.isDestroyed()) {
+    messageWindow = new BrowserWindow({
+      width: 280,
+      height: 360,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      fullscreenable: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+      },
+    });
+    messageWindow.loadFile(path.join(__dirname, 'message-center.html'));
+
+    messageWindow.webContents.on('did-finish-load', () => {
+      pushMessageTheme();
+    });
+    messageWindow.on('blur', scheduleOverlayHide);
+    messageWindow.on('closed', () => {
+      messageWindow = null;
+    });
+  }
+
+  positionMessageWindow(isFloating);
+  messageWindow.show();
+  // 每次打开刷新通知列表
+  broadcastNotifications();
+}
+
+function hideMessageWindow() {
+  if (messageWindow && !messageWindow.isDestroyed() && messageWindow.isVisible()) {
+    messageWindow.hide();
   }
 }
 
@@ -945,13 +1139,7 @@ function showCalendarWindow(opts = {}) {
     calendarWindow.webContents.on('did-finish-load', () => {
       pushCalendarTheme();
     });
-    calendarWindow.on('blur', () => {
-      clearTimeout(calendarHideTimer);
-      calendarHideTimer = setTimeout(() => {
-        calendarHideTimer = null;
-        hideCalendarWindow();
-      }, 200);
-    });
+    calendarWindow.on('blur', scheduleOverlayHide);
     calendarWindow.on('closed', () => {
       calendarWindow = null;
     });
@@ -961,6 +1149,8 @@ function showCalendarWindow(opts = {}) {
   calendarWindow.show();
   calendarWindow.focus();
   broadcastCalendarState(true);
+  // 消息面板（分体窗口）同时打开，位于日历上方
+  showMessageWindow(isFloating);
 }
 
 function hideCalendarWindow() {
@@ -970,13 +1160,18 @@ function hideCalendarWindow() {
     calendarWindow.hide();
     broadcastCalendarState(false);
   }
+  hideMessageWindow();
 }
 
 ipcMain.handle('calendar:toggle', async (event, opts = {}) => {
   clearTimeout(calendarHideTimer);
   calendarHideTimer = null;
-  if (calendarWindow && !calendarWindow.isDestroyed() && calendarWindow.isVisible()) {
+  const overlayOpen =
+    (calendarWindow && !calendarWindow.isDestroyed() && calendarWindow.isVisible()) ||
+    (messageWindow && !messageWindow.isDestroyed() && messageWindow.isVisible());
+  if (overlayOpen) {
     hideCalendarWindow();
+    hideMessageWindow();
     return { open: false };
   }
   showCalendarWindow(opts);
@@ -987,12 +1182,17 @@ ipcMain.on('calendar:hide', () => {
   hideCalendarWindow();
 });
 
+ipcMain.on('message:hide', () => {
+  hideCalendarWindow();
+});
+
 /**
  * 隐藏所有浮层窗口（Shell 模式 / 锁屏时调用）
  */
 function hideOverlayWindows() {
   hideStartMenuWindow();
   hideCalendarWindow();
+  hideMessageWindow();
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     controlCenterWindow.hide();
   }
@@ -1453,10 +1653,10 @@ ipcMain.handle('pkgmanager:show', async (event, options = {}) => {
 // 属性窗口
 ipcMain.handle('properties:show', async (event, appData) => {
   console.log('[Properties IPC] properties:show received, appData:', JSON.stringify(appData));
-  
+
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   const iconPath = path.join(__dirname, '../favicon.ico');
-  
+
   const propsWindow = new BrowserWindow({
     width: 360,
     height: 380,
@@ -1472,10 +1672,10 @@ ipcMain.handle('properties:show', async (event, appData) => {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-  
+
   const theme = appData.theme || 'dark';
   const accentColor = appData.accentColor || '#0078D4';
-  
+
   const htmlContent = `
     <!DOCTYPE html>
     <html lang="zh-CN">
@@ -1533,9 +1733,9 @@ ipcMain.handle('properties:show', async (event, appData) => {
         }
         .content::-webkit-scrollbar { width: 6px; }
         .content::-webkit-scrollbar-track { background: transparent; }
-        .content::-webkit-scrollbar-thumb { 
-          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'}; 
-          border-radius: 3px; 
+        .content::-webkit-scrollbar-thumb {
+          background: ${theme === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'};
+          border-radius: 3px;
         }
         .prop-row {
           display: flex;
@@ -1575,10 +1775,10 @@ ipcMain.handle('properties:show', async (event, appData) => {
     </body>
     </html>
   `;
-  
+
   propsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
   console.log('[Properties IPC] Properties window created');
-  
+
   propsWindow.on('closed', () => {
     console.log('[Properties IPC] Properties window closed');
   });
@@ -1712,7 +1912,7 @@ ipcMain.handle('app:launch', async (_, appName) => {
   try {
     const normalizedName = normalizeAppName(appName);
     let appPath;
-    
+
     try {
       const converter = await getPathConverter(APP_ROOT);
       const result = await converter.toWindows('/usr/share/applications');
@@ -1726,9 +1926,9 @@ ipcMain.handle('app:launch', async (_, appName) => {
       console.warn('Failed to get app path via converter, using fallback:', converterError.message);
       appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${normalizedName}.app`);
     }
-    
+
     console.log('Attempting to launch app:', appPath);
-    
+
     const appDataRaw = await fs.readFile(appPath, 'utf-8');
     const appData = await convertAppDataPaths(JSON.parse(appDataRaw));
     appData.exePath = await resolveAmsysIfEmbedded(appData.exePath);
@@ -1743,36 +1943,36 @@ ipcMain.handle('app:launch', async (_, appName) => {
       }
       throw new Error(`Unsupported internal app: ${internalName}`);
     }
-    
+
     if (!appData.exePath) {
       throw new Error('No exePath specified in app config');
     }
-    
+
     console.log('Launching exe:', appData.exePath);
-    
-    const isTerminal = appData.exePath.toLowerCase().endsWith('cmd.exe') || 
+
+    const isTerminal = appData.exePath.toLowerCase().endsWith('cmd.exe') ||
                        appData.exePath.toLowerCase().endsWith('powershell.exe') ||
                        appData.exePath.toLowerCase().endsWith('pwsh.exe') ||
                        appData.exePath.toLowerCase().endsWith('amsys.exe');
-    
+
     const child = spawn(appData.exePath, appData.args || [], {
       detached: true,
       stdio: isTerminal ? 'inherit' : 'ignore',
       shell: isTerminal,
       cwd: appData.cwd || undefined
     });
-    
+
     child.unref();
     console.log('App launched successfully');
-    
+
     return { success: true, appName: appData.name };
-    
+
   } catch (error) {
     console.error('Failed to launch app:', error.message);
     console.error('Error stack:', error.stack);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 });
@@ -1810,7 +2010,7 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
   try {
     const normalizedName = normalizeAppName(appName);
     let appPath;
-    
+
     try {
       const converter = await getPathConverter(APP_ROOT);
       const result = await converter.toWindows('/usr/share/applications');
@@ -1824,9 +2024,9 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
       console.warn('Failed to get app path via converter, using fallback:', converterError.message);
       appPath = path.join(APP_ROOT, 'rootdir', 'usr', 'share', 'applications', `${normalizedName}.app`);
     }
-    
+
     console.log('Getting app info:', appPath);
-    
+
     let appData;
     try {
       const appDataRaw = await fs.readFile(appPath, 'utf-8');
@@ -1867,19 +2067,19 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
       };
       appData = appMappings[appName];
       if (!appData) {
-        return { 
-          success: false, 
-          error: 'App not found in mapping' 
+        return {
+          success: false,
+          error: 'App not found in mapping'
         };
       }
     }
-    
+
     // 支持 .app 配置中的 Unix 风格路径（/usr、/opt、/mnt/c 等）
     appData = await convertAppDataPaths(appData);
     appData.exePath = await resolveAmsysIfEmbedded(appData.exePath);
-    
+
     const iconPath = await extractAppIcon(appData, appName);
-    
+
     return {
       success: true,
       name: appData.name,
@@ -1887,12 +2087,12 @@ ipcMain.handle('app:getInfo', async (_, appName) => {
       exePath: appData.exePath,
       icon: iconPath
     };
-    
+
   } catch (error) {
     console.error('Failed to get app info:', error.message);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 });
@@ -2083,6 +2283,11 @@ ipcMain.handle('apps:uninstall', async (_, appName) => {
       await removeDesktopShortcuts(name);
       // 即时刷新开始菜单（卸载后立刻消失）
       notifyStartMenuRefresh();
+      emitNotification({
+        source: 'system',
+        title: '应用卸载',
+        body: `${name.replace(/\.app$/i, '')} 已卸载`,
+      });
     }
     return result;
   } catch (err) {
@@ -2100,9 +2305,9 @@ ipcMain.handle('screen:lock', async () => {
 
   // 锁屏时隐藏所有浮层窗口
   hideOverlayWindows();
-  
+
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  
+
   lockWindow = new BrowserWindow({
     width: width,
     height: height,
@@ -2119,13 +2324,13 @@ ipcMain.handle('screen:lock', async () => {
       nodeIntegration: false
     }
   });
-  
+
   lockWindow.loadFile(path.join(__dirname, 'lockscreen.html'));
-  
+
   lockWindow.on('closed', () => {
     lockWindow = null;
   });
-  
+
   lockWindow.on('blur', () => {
     if (lockWindow) {
       lockWindow.focus();
@@ -2141,12 +2346,12 @@ ipcMain.handle('lockscreen:init', async () => {
       currentLoggedInUser = users.find(u => u.userid === lastUserId);
     }
   }
-  
+
   if (currentLoggedInUser) {
     const settings = await config.getSettings(currentLoggedInUser.userid);
     const desktop = await config.getUserDesktop(currentLoggedInUser.userid);
     const userConfig = await config.getUserConfig(currentLoggedInUser.userid);
-    
+
     return {
       userId: currentLoggedInUser.userid,
       username: currentLoggedInUser.username,
@@ -2187,7 +2392,7 @@ function startAmsysProcess() {
     '$proc.WaitForExit()',
     'Write-Output ("EXITCODE=" + $proc.ExitCode)'
   ].join('\r\n');
-  
+
   fs.writeFile(scriptPath, scriptContent, 'utf-8')
     .then(async () => {
       const amsysPath = await getAmsysPath();
@@ -2210,10 +2415,10 @@ function startAmsysProcess() {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
       });
-      
+
       amsysProcess = launcher;
       amsysShellPid = null;
-      
+
       let launcherStdout = '';
       launcher.stdout.on('data', (data) => {
         const text = data.toString();
@@ -2227,20 +2432,20 @@ function startAmsysProcess() {
       launcher.stderr.on('data', (data) => {
         console.error('[amsys launcher stderr]', data.toString());
       });
-      
+
       launcher.on('exit', () => {
         fs.unlink(scriptPath, () => {});
         const pidMatch = launcherStdout.match(/PID=(\d+)/);
         const codeMatch = launcherStdout.match(/EXITCODE=(\d+)/);
         const amsysPid = pidMatch ? parseInt(pidMatch[1], 10) : null;
         const amsysExitCode = codeMatch ? parseInt(codeMatch[1], 10) : null;
-        
+
         console.log(`amsys (pid ${amsysPid}) exited with code: ${amsysExitCode}`);
         amsysProcess = null;
         amsysShellPid = null;
-        
+
         if (!isShellMode) return;
-        
+
         if (amsysExitCode === 0) {
           // 主动输入 exit：结束 Shell 模式，恢复主界面
           console.log('amsys exited normally (exit), leaving shell mode...');
@@ -2254,7 +2459,7 @@ function startAmsysProcess() {
           }, 1000);
         }
       });
-      
+
       launcher.on('error', (err) => {
         console.error('Failed to start amsys launcher:', err.message);
         fs.unlink(scriptPath, () => {});
@@ -2289,19 +2494,19 @@ function showMainUI() {
 
 ipcMain.on('auth:shell', () => {
   console.log('=== Entering Shell Mode ===');
-  
+
   isShellMode = true;
 
   // 隐藏所有浮层窗口
   hideOverlayWindows();
-  
+
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
     dashboardWindow.hide();
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.hide();
   }
-  
+
   startAmsysProcess();
 });
 
@@ -2357,14 +2562,14 @@ ipcMain.handle('control-center:show', async () => {
     controlCenterWindow.focus();
     return;
   }
-  
+
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
   const CONTROL_CENTER_WIDTH = 320;
   const CONTROL_CENTER_HEIGHT = 420;
   // 悬浮任务栏：底部 8px 起、高 48px，面板定位在其上方并留 12px 间距
   const BOTTOM_MARGIN = 68;
-  
+
   controlCenterWindow = new BrowserWindow({
     width: CONTROL_CENTER_WIDTH,
     height: CONTROL_CENTER_HEIGHT,
@@ -2377,18 +2582,18 @@ ipcMain.handle('control-center:show', async () => {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-  
+
   controlCenterWindow.setPosition(width - CONTROL_CENTER_WIDTH - 16, height - CONTROL_CENTER_HEIGHT - BOTTOM_MARGIN);
   controlCenterWindow.loadFile(path.join(__dirname, 'control-center.html'));
   // 开发模式打开 DevTools，便于查看控制中心日志与错误（否则日志打在不可见窗口）
   if (!app.isPackaged) {
     controlCenterWindow.webContents.openDevTools({ mode: 'detach' });
   }
-  
+
   controlCenterWindow.on('closed', () => {
     controlCenterWindow = null;
   });
-  
+
   controlCenterWindow.on('blur', () => {
     controlCenterWindow.hide();
   });
@@ -2896,7 +3101,15 @@ ipcMain.handle('system:setNightMode', async (_, enabled) => {
       `"${pwsh}" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
       { timeout: 8000, windowsHide: true, encoding: 'utf8' }
     );
-    return { success: String(stdout || '').trim() === 'ok' };
+    const success = String(stdout || '').trim() === 'ok';
+    if (success) {
+      emitNotification({
+        source: 'system',
+        title: '夜间模式',
+        body: enabled ? '夜间模式已开启' : '夜间模式已关闭',
+      });
+    }
+    return { success };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -2995,7 +3208,15 @@ ipcMain.handle('system:setWifiPower', async (_, enabled) => {
   try {
     // wlanapi 无线电状态切换；驱动异步生效（开启可能需约 10~30 秒），
     // sys.ps1 内部轮询等待收敛（最长 35 秒），这里给足超时
-    return await sysServer.command('wifiPower', [!!enabled], 60000);
+    const result = await sysServer.command('wifiPower', [!!enabled], 60000);
+    if (result && result.success) {
+      emitNotification({
+        source: 'system',
+        title: 'WiFi',
+        body: enabled ? 'WiFi 已开启' : 'WiFi 已关闭',
+      });
+    }
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3012,11 +3233,19 @@ ipcMain.handle('system:scanWifi', async () => {
 ipcMain.handle('system:connectWifi', async (_, ssid, password, hidden) => {
   try {
     // hidden：连接隐藏 SSID 网络时生成的配置文件带 nonBroadcast 标记
-    return await sysServer.command(
+    const result = await sysServer.command(
       'wifiConnect',
       [String(ssid || ''), String(password || ''), !!hidden],
       20000
     );
+    if (result && result.success) {
+      emitNotification({
+        source: 'system',
+        title: 'WiFi',
+        body: `已连接到 ${String(ssid || '')}`,
+      });
+    }
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3032,7 +3261,15 @@ ipcMain.handle('system:getWifiKnownNetworks', async () => {
 
 ipcMain.handle('system:disconnectWifi', async () => {
   try {
-    return await sysServer.command('wifiDisconnect', [], 15000);
+    const result = await sysServer.command('wifiDisconnect', [], 15000);
+    if (result && result.success) {
+      emitNotification({
+        source: 'system',
+        title: 'WiFi',
+        body: 'WiFi 已断开',
+      });
+    }
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3056,7 +3293,15 @@ ipcMain.handle('system:getBluetoothStatus', async () => {
 
 ipcMain.handle('system:connectBluetoothDevice', async (_, address) => {
   try {
-    return await sysServer.command('btConnect', [String(address || '')], 20000);
+    const result = await sysServer.command('btConnect', [String(address || '')], 20000);
+    if (result && result.success) {
+      emitNotification({
+        source: 'system',
+        title: '蓝牙',
+        body: `已连接设备 ${String(address || '')}`,
+      });
+    }
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3064,7 +3309,15 @@ ipcMain.handle('system:connectBluetoothDevice', async (_, address) => {
 
 ipcMain.handle('system:disconnectBluetoothDevice', async (_, address) => {
   try {
-    return await sysServer.command('btDisconnect', [String(address || '')], 20000);
+    const result = await sysServer.command('btDisconnect', [String(address || '')], 20000);
+    if (result && result.success) {
+      emitNotification({
+        source: 'system',
+        title: '蓝牙',
+        body: `已断开设备 ${String(address || '')}`,
+      });
+    }
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3082,7 +3335,15 @@ ipcMain.handle('system:discoverBluetoothDevices', async () => {
 ipcMain.handle('system:pairBluetoothDevice', async (_, address, pin) => {
   try {
     // 配对为同步阻塞操作（自动尝试常用码或等待用户配对码），给足超时
-    return await sysServer.command('btPair', [String(address || ''), String(pin || '')], 60000);
+    const result = await sysServer.command('btPair', [String(address || ''), String(pin || '')], 60000);
+    if (result && result.success) {
+      emitNotification({
+        source: 'system',
+        title: '蓝牙',
+        body: `配对成功：${String(address || '')}`,
+      });
+    }
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3090,7 +3351,15 @@ ipcMain.handle('system:pairBluetoothDevice', async (_, address, pin) => {
 
 ipcMain.handle('system:unpairBluetoothDevice', async (_, address) => {
   try {
-    return await sysServer.command('btUnpair', [String(address || '')], 20000);
+    const result = await sysServer.command('btUnpair', [String(address || '')], 20000);
+    if (result && result.success) {
+      emitNotification({
+        source: 'system',
+        title: '蓝牙',
+        body: `已取消配对：${String(address || '')}`,
+      });
+    }
+    return result;
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -3135,5 +3404,3 @@ ipcMain.handle('system:setTimeZone', async (_, id) => {
     return { success: false, error: e.message };
   }
 });
-
-

@@ -11,6 +11,9 @@ let isTaskbarFloating = true;
 // 时间显示格式（true=24 小时制，false=12 小时制）
 let time24h = true;
 
+// 消息面板：未读数（有新消息时在时间左侧显示铃铛指示）
+let notifyUnread = 0;
+
 // 剪贴板状态：null | { mode: 'copy'|'cut', app: Object }
 let clipboard = null;
 
@@ -71,6 +74,16 @@ async function initTheme() {
   } catch (error) {
     console.error('Failed to load theme settings:', error);
   }
+}
+
+/**
+ * 更新时间左侧的铃铛指示：仅在有未读消息时显示
+ */
+function updateNotifyBadge(data) {
+  notifyUnread = (data && data.unread) || 0;
+  const indicator = document.getElementById('taskbar-msg-indicator');
+  if (!indicator) return;
+  indicator.style.display = notifyUnread > 0 ? '' : 'none';
 }
 
 /**
@@ -360,6 +373,12 @@ window.electronAPI.settings.onChange(async (change) => {
     case 'time24h':
       time24h = !!change.value;
       updateTime();
+      break;
+    case 'notifyApps':
+    case 'notifySystem':
+    case 'notifyDnd':
+      // 通知偏好变化后重新拉取（主进程按偏好过滤后的）未读数
+      window.electronAPI.notify.list().then((data) => updateNotifyBadge(data)).catch(() => {});
       break;
     case 'desktopBackground':
       if (change.value) {
@@ -903,6 +922,10 @@ function bindFloatingMenuEvents() {
   window.electronAPI.calendar.onState((open) => {
     if (timeBtn) timeBtn.classList.toggle('active', !!open);
   });
+
+  // 消息铃铛指示：初始加载 + 主进程推送
+  window.electronAPI.notify.list().then((data) => updateNotifyBadge(data)).catch(() => {});
+  window.electronAPI.notify.onList((data) => updateNotifyBadge(data));
 
   // 开始菜单“发送到桌面”后刷新桌面网格
   window.electronAPI.desktop.onRefresh(() => {

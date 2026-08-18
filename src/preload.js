@@ -240,6 +240,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getDeviceInfo: () => ipcRenderer.invoke('settings:getDeviceInfo')
   },
 
+  // 通知（消息面板）API
+  notify: {
+    /** 获取通知列表（已按通知偏好过滤），返回 { items, unread } */
+    list: () => ipcRenderer.invoke('notify:list'),
+    /** 将单条通知标记为已读 */
+    dismiss: (id) => ipcRenderer.invoke('notify:dismiss', id),
+    /** 全部标记为已读 */
+    dismissAll: () => ipcRenderer.invoke('notify:dismissAll'),
+    /** 清空全部通知 */
+    clear: () => ipcRenderer.invoke('notify:clear'),
+    /** 发送一条通知（source: 'system'|'app'） */
+    send: (payload) => ipcRenderer.invoke('notify:send', payload),
+    /** 监听通知列表变化（新增/已读/清空） */
+    onList: (callback) => {
+      ipcRenderer.on('notify:list', (event, data) => callback(data));
+    }
+  },
+
   // 高级管理（其他用户）API
   admin: {
     /** 监听“新建用户成功”后刷新列表 */
@@ -299,6 +317,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 监听日历打开/关闭状态（dashboard 同步按钮高亮） */
     onState: (callback) => {
       ipcRenderer.on('calendar:state', (event, open) => callback(open));
+    }
+  },
+
+  // 消息面板（分体窗口，位于日历上方）API
+  message: {
+    /** 隐藏消息面板（连同日历） */
+    hide: () => ipcRenderer.send('message:hide'),
+    /** 监听消息面板窗口加载后下发的主题数据 */
+    onTheme: (callback) => {
+      ipcRenderer.on('message:theme', (event, data) => callback(data));
     }
   },
 

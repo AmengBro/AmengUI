@@ -212,6 +212,41 @@ body.theme-bright .control-center-btn svg {
   color: rgba(0, 0, 0, 0.7);
 }
 
+/* 消息铃铛指示（仅在有未读消息时显示，位于时间左侧） */
+.taskbar-msg-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+.taskbar-msg-indicator svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 未读红点 */
+.taskbar-msg-dot {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #E81123;
+  box-shadow: 0 0 0 2px rgba(30, 30, 30, 0.9);
+}
+
+body.theme-bright .taskbar-msg-indicator {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+body.theme-bright .taskbar-msg-dot {
+  box-shadow: 0 0 0 2px rgba(245, 245, 245, 0.95);
+}
+
 /* 时间按钮 */
 .taskbar-time-btn {
   display: flex;
