@@ -74,7 +74,8 @@ function renderMessages(data) {
     const titleRow = document.createElement('div');
     titleRow.className = 'msg-item-title';
     const title = document.createElement('span');
-    title.textContent = n.title || '通知';
+    const notificationTitle = n.title || '通知';
+    title.textContent = n.appName ? `${n.appName} · ${notificationTitle}` : notificationTitle;
     const time = document.createElement('span');
     time.className = 'msg-item-time';
     time.textContent = formatNotifyTime(n.time);

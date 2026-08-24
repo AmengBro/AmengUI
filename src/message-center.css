@@ -196,6 +196,13 @@ body.theme-bright .msg-header {
   color: white;
 }
 
+.msg-item-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .msg-item-time {
   font-size: 10px;
   font-weight: 400;

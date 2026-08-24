@@ -43,6 +43,7 @@ const SCRIPTS_DIR = getScriptsDir();
 const AUDIO_SCRIPT = path.join(SCRIPTS_DIR, 'audio.ps1');
 const SYS_SCRIPT = path.join(SCRIPTS_DIR, 'sys.ps1');
 const WINDOWS_SCRIPT = path.join(SCRIPTS_DIR, 'windows.ps1');
+const NOTIFICATIONS_SCRIPT = path.join(SCRIPTS_DIR, 'notifications.ps1');
 
 function getAppRoot() {
   const isPackaged = app?.isPackaged || false;
@@ -161,6 +162,12 @@ let calendarWindow = null;
 let amsysProcess = null;
 let amsysShellPid = null;
 let isShellMode = false;
+let systemNotificationServer = null;
+let systemNotificationTimer = null;
+let systemNotificationPolling = false;
+let systemNotificationInitialized = false;
+const systemNotificationKeys = new Set();
+let systemNotificationState = { success: false, status: 'starting' };
 
 /**
  * 创建应用主窗口
@@ -317,13 +324,17 @@ app.whenReady().then(async () => {
     createTaskbarWindow();
   });
   // 首次运行投放欢迎通知（存储文件不存在时）
-  fs.access(notifications.STORE_PATH).catch(() => {
+  notifications.hasStore().then((exists) => {
+    if (exists) return;
     emitNotification({
       source: 'system',
       title: '欢迎使用 AmengUI',
       body: '系统通知会显示在这里，可前往 设置 → 系统 → 通知 调整偏好。',
     });
   });
+  // Windows Toast history is read by a dedicated Windows PowerShell 5.1
+  // process because PowerShell 7 cannot project UserNotificationListener.
+  startSystemNotificationListener();
 
   // macOS 特性：点击 dock 图标时重新创建窗口
   app.on('activate', () => {
@@ -354,6 +365,11 @@ async function initConfig() {
     for (const user of users) {
       await config.ensureUserDir(user.userid);
     }
+
+    // Notification history is user data. Resolve ~/.config through passwd's
+    // home field and migrate the old global file on first access.
+    notifications.setStorePathResolver(resolveNotificationStorePath);
+    await notifications.migrateLegacyStore(notifications.LEGACY_STORE_PATH);
 
     // 迁移旧的 settings.json 到第一个用户的配置（如果存在旧数据且用户目录没有配置）
     const oldSettingsPath = path.join(config.CONFIG_DIR, 'settings.json');
@@ -421,6 +437,7 @@ app.on('before-quit', (event) => {
 
 async function cleanupBeforeQuit() {
   config.stopConfigWatch();
+  stopSystemNotificationListener();
   sessionTransitionInProgress = true;
   isShellMode = false;
   stopTaskbarWindowPolling();
@@ -569,7 +586,9 @@ ipcMain.handle('config:setDisplayProfile', async (_, profile, userId) => {
 });
 
 ipcMain.handle('config:setNotificationPref', async (_, key, value, userId) => {
-  return await config.setNotificationPref(key, value, userId);
+  const saved = await config.setNotificationPref(key, value, userId);
+  if (saved) await broadcastNotifications();
+  return saved;
 });
 
 ipcMain.handle('config:setTimeFormat24h', async (_, value, userId) => {
@@ -906,6 +925,24 @@ async function resolveCurrentUserId() {
   return users && users.length > 0 ? users[0].userid : null;
 }
 
+/** Resolve ~/.config for the active amsys account. */
+async function resolveNotificationStorePath() {
+  let home = '/root';
+  try {
+    const uid = await resolveCurrentUserId();
+    const records = await config.readPasswdShadow();
+    const user = records.find((record) => record.userid === uid) || records.find((record) => record.userid === 0);
+    if (user && user.home) home = String(user.home);
+  } catch {}
+  const relativeHome = home.replace(/^[\\/]+/, '').replace(/[\\/]$/, '');
+  // passwd homes are virtual Unix paths. Refuse traversal rather than writing
+  // outside the configured amsys root if a malformed passwd entry is present.
+  if (!relativeHome || relativeHome.split(/[\\/]+/).includes('..')) {
+    return path.join(config.AMSYS_ROOT, 'root', '.config', 'system', 'core', 'notifications.json');
+  }
+  return path.join(config.AMSYS_ROOT, relativeHome, '.config', 'system', 'core', 'notifications.json');
+}
+
 /**
  * 解析当前用户的主题设置（浮层窗口使用）
  */
@@ -922,6 +959,173 @@ async function resolveUserTheme(account) {
     console.warn('[Floating] 解析主题失败:', err.message);
   }
   return { theme, accentColor };
+}
+
+/**
+ * Small JSON-lines client for notifications.ps1. This intentionally launches
+ * Windows PowerShell 5.1, whose WinRT projection supports UserNotificationListener.
+ */
+class SystemNotificationServer {
+  constructor(scriptPath) {
+    this.scriptPath = scriptPath;
+    this.child = null;
+    this.pending = new Map();
+    this.buffer = '';
+    this.seq = 0;
+    this.starting = null;
+  }
+
+  async ensureStarted() {
+    if (this.child && this.child.exitCode === null) return;
+    if (this.starting) return this.starting;
+    this.starting = new Promise((resolve, reject) => {
+      const child = spawn('powershell.exe', [
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', this.scriptPath, '-Server'
+      ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      this.child = child;
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => this.onData(chunk));
+      child.stderr.on('data', (chunk) => {
+        const message = String(chunk).trim();
+        if (message) console.warn('[system-notify]', message);
+      });
+      child.once('spawn', resolve);
+      child.once('error', reject);
+      child.on('exit', () => {
+        this.child = null;
+        const error = new Error('system notification server exited');
+        for (const [, pending] of this.pending) {
+          clearTimeout(pending.timer);
+          pending.reject(error);
+        }
+        this.pending.clear();
+      });
+    }).finally(() => { this.starting = null; });
+    return this.starting;
+  }
+
+  onData(chunk) {
+    this.buffer += chunk;
+    let index;
+    while ((index = this.buffer.indexOf('\n')) >= 0) {
+      const line = this.buffer.slice(0, index).trim();
+      this.buffer = this.buffer.slice(index + 1);
+      if (!line) continue;
+      let message;
+      try { message = JSON.parse(line); } catch { continue; }
+      const pending = this.pending.get(message.id);
+      if (!pending) continue;
+      this.pending.delete(message.id);
+      clearTimeout(pending.timer);
+      if (message.ok) pending.resolve(message.data);
+      else pending.reject(new Error(message.error || 'system notification command failed'));
+    }
+  }
+
+  async snapshot(timeoutMs = 12000) {
+    await this.ensureStarted();
+    if (!this.child || this.child.exitCode !== null) throw new Error('system notification server unavailable');
+    const id = ++this.seq;
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error('system notification snapshot timeout'));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      try {
+        this.child.stdin.write(JSON.stringify({ id, cmd: 'snapshot', args: [] }) + '\n');
+      } catch (error) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(error);
+      }
+    });
+  }
+
+  stop() {
+    if (this.child && this.child.exitCode === null) {
+      try { this.child.stdin.end(); } catch {}
+      try { this.child.kill(); } catch {}
+    }
+    this.child = null;
+  }
+}
+
+function systemNotificationKey(item) {
+  return [item.sourceId, item.time, item.title, item.body, item.appName].join('|');
+}
+
+function broadcastSystemNotificationState() {
+  const wins = [dashboardWindow, calendarWindow, messageWindow, taskbarWindow]
+    .filter((win) => win && !win.isDestroyed());
+  for (const win of wins) win.webContents.send('notify:system-status', systemNotificationState);
+}
+
+async function pollSystemNotifications() {
+  if (!systemNotificationServer || systemNotificationPolling || isQuitting) return;
+  systemNotificationPolling = true;
+  try {
+    const snapshot = await systemNotificationServer.snapshot();
+    systemNotificationState = {
+      success: snapshot && snapshot.success === true,
+      status: (snapshot && snapshot.status) || 'Unavailable',
+      error: snapshot && snapshot.error ? snapshot.error : null,
+    };
+    broadcastSystemNotificationState();
+
+    const incoming = Array.isArray(snapshot && snapshot.items) ? snapshot.items : [];
+    if (!systemNotificationInitialized) {
+      // Existing Windows history predates this session. Remember it as the
+      // baseline so opening AmengUI does not duplicate an old notification flood.
+      for (const item of incoming) systemNotificationKeys.add(systemNotificationKey(item));
+      systemNotificationInitialized = true;
+    } else {
+      for (const item of incoming) {
+        const key = systemNotificationKey(item);
+        if (systemNotificationKeys.has(key)) continue;
+        systemNotificationKeys.add(key);
+        await emitNotification({
+          source: 'system',
+          appName: item.appName || null,
+          title: item.title || '系统通知',
+          body: item.body || '',
+          time: item.time,
+        });
+      }
+      // Keep the deduplication set bounded during long sessions.
+      if (systemNotificationKeys.size > 1000) {
+        const keep = Array.from(systemNotificationKeys).slice(-500);
+        systemNotificationKeys.clear();
+        for (const key of keep) systemNotificationKeys.add(key);
+      }
+    }
+  } catch (error) {
+    systemNotificationState = { success: false, status: 'Error', error: error.message };
+    broadcastSystemNotificationState();
+  } finally {
+    systemNotificationPolling = false;
+  }
+}
+
+function startSystemNotificationListener() {
+  if (process.platform !== 'win32' || systemNotificationTimer || isQuitting) return;
+  systemNotificationServer = new SystemNotificationServer(NOTIFICATIONS_SCRIPT);
+  systemNotificationInitialized = false;
+  // Polling is used because UserNotificationListener does not expose a stable
+  // event in Windows PowerShell 5.1. The first pass establishes a baseline.
+  pollSystemNotifications();
+  systemNotificationTimer = setInterval(() => pollSystemNotifications(), 2500);
+}
+
+function stopSystemNotificationListener() {
+  if (systemNotificationTimer) {
+    clearInterval(systemNotificationTimer);
+    systemNotificationTimer = null;
+  }
+  if (systemNotificationServer) systemNotificationServer.stop();
+  systemNotificationServer = null;
+  systemNotificationPolling = false;
 }
 
 // ==================== 通知服务（消息面板） ====================
@@ -981,7 +1185,6 @@ async function emitNotification(payload) {
   if (source === 'app' && !prefs.app) return null;
   if (source === 'system' && !prefs.system) return null;
   const item = await notifications.add({ ...payload, source, read: prefs.dnd });
-  broadcastNotifications();
   return item;
 }
 
@@ -1019,6 +1222,12 @@ ipcMain.handle('notify:send', async (_, payload = {}) => {
     icon: payload.icon,
   });
   return { success: !!item, item };
+});
+
+ipcMain.on('notify:system-status-request', (event) => {
+  if (event.sender && !event.sender.isDestroyed()) {
+    event.sender.send('notify:system-status', systemNotificationState);
+  }
 });
 
 /**

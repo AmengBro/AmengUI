@@ -257,6 +257,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 监听通知列表变化（新增/已读/清空） */
     onList: (callback) => {
       ipcRenderer.on('notify:list', (event, data) => callback(data));
+    },
+    /** 获取 Windows 系统通知读取状态 */
+    getSystemStatus: () => new Promise((resolve) => {
+      const handler = (_, data) => {
+        ipcRenderer.removeListener('notify:system-status', handler);
+        resolve(data);
+      };
+      ipcRenderer.on('notify:system-status', handler);
+      ipcRenderer.send('notify:system-status-request');
+    }),
+    /** 监听 Windows 系统通知读取状态变化 */
+    onSystemStatus: (callback) => {
+      ipcRenderer.on('notify:system-status', (event, data) => callback(data));
     }
   },
 

@@ -1808,6 +1808,17 @@ async function loadNotify() {
     });
     host.appendChild(sw.el);
   });
+
+  const statusText = document.getElementById('notify-system-desc');
+  if (statusText && window.electronAPI.notify && window.electronAPI.notify.getSystemStatus) {
+    window.electronAPI.notify.getSystemStatus().then((status) => {
+      if (!statusText || !status) return;
+      if (status.status === 'Allowed') statusText.textContent = '接收 Windows 系统通知';
+      else if (status.status === 'Denied') statusText.textContent = 'Windows 未授权通知访问';
+      else if (status.status === 'Unspecified' || status.status === 'starting') statusText.textContent = '正在请求系统通知访问';
+      else statusText.textContent = '当前系统不支持通知读取';
+    }).catch(() => {});
+  }
 }
 
 /* ============================================================
