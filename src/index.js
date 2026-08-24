@@ -42,6 +42,7 @@ function getScriptsDir() {
 const SCRIPTS_DIR = getScriptsDir();
 const AUDIO_SCRIPT = path.join(SCRIPTS_DIR, 'audio.ps1');
 const SYS_SCRIPT = path.join(SCRIPTS_DIR, 'sys.ps1');
+const WINDOWS_SCRIPT = path.join(SCRIPTS_DIR, 'windows.ps1');
 
 function getAppRoot() {
   const isPackaged = app?.isPackaged || false;
@@ -83,16 +84,30 @@ using System.Runtime.InteropServices;
 public class User32 {
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll")]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 }
 "@
 
 $hwndPtr = [IntPtr]$hwnd
+$GWL_EXSTYLE = -20
+$WS_EX_TOPMOST = 0x00000008
+# A topmost HWND is never a desktop target. This native guard protects against
+# stale asynchronous HWNDs being reused after logout/re-login.
+if (([User32]::GetWindowLong($hwndPtr, $GWL_EXSTYLE) -band $WS_EX_TOPMOST) -ne 0) {
+    Write-Host "Refusing to send a TOPMOST window to the bottom"
+    exit 0
+}
 $HWND_BOTTOM = [IntPtr]1
 $SWP_NOSIZE = 0x0001
 $SWP_NOMOVE = 0x0002
 $SWP_NOACTIVATE = 0x0010
+# Do not reorder owned windows when the desktop is sent behind applications.
+# The taskbar is an independent top-level window and must never follow this
+# operation through an owner/owned-window relationship created by Electron.
+$SWP_NOOWNERZORDER = 0x0200
 
-$result = [User32]::SetWindowPos($hwndPtr, $HWND_BOTTOM, 0, 0, 0, 0, $SWP_NOSIZE -bor $SWP_NOMOVE -bor $SWP_NOACTIVATE)
+$result = [User32]::SetWindowPos($hwndPtr, $HWND_BOTTOM, 0, 0, 0, 0, $SWP_NOSIZE -bor $SWP_NOMOVE -bor $SWP_NOACTIVATE -bor $SWP_NOOWNERZORDER)
 
 Write-Host "SetWindowPos result: $result"
 
@@ -103,9 +118,10 @@ if ($result) {
     [System.Environment]::Exit(1)
 }`;
 
+  let scriptPath = null;
   try {
     const tempDir = os.tmpdir();
-    const scriptPath = path.join(tempDir, `amengui_setbottom_${hwnd}_${Date.now()}.ps1`);
+    scriptPath = path.join(tempDir, `amengui_setbottom_${hwnd}_${Date.now()}.ps1`);
 
     await fs.writeFile(scriptPath, scriptContent, 'utf-8');
 
@@ -122,28 +138,7 @@ if ($result) {
     if (error.stderr) console.error('Partial stderr:', error.stderr);
   } finally {
     // 无论成败都清理临时脚本，避免长期运行积累大量 .ps1
-    await fs.unlink(scriptPath).catch(() => {});
-  }
-}
-
-/**
- * 使用命令行工具 nircmd 设置窗口置底（备选方案）
- */
-async function forceWindowToBottomWithNircmd(hwnd) {
-  if (process.platform !== 'win32') return;
-
-  try {
-    // 尝试使用 nircmd（如果可用）
-    const nircmdPath = 'nircmd.exe';
-    const command = `"${nircmdPath}" win settopmost handle ${hwnd} 0`;
-
-    try {
-      const { stdout, stderr } = await execAsync(command);
-    } catch (e) {
-      // nircmd 不可用属正常情况，静默跳过
-    }
-  } catch (error) {
-    console.error('forceWindowToBottomWithNircmd failed:', error.message);
+    if (scriptPath) await fs.unlink(scriptPath).catch(() => {});
   }
 }
 
@@ -156,6 +151,10 @@ if (require('electron-squirrel-startup')) {
 let mainWindow = null;
 let dashboardWindow = null;
 let dashboardBottomPushBusy = false;
+let mainBottomTimer = null;
+let dashboardBottomTimer = null;
+let isQuitting = false;
+let sessionTransitionInProgress = false;
 let controlCenterWindow = null;
 let startMenuWindow = null;
 let calendarWindow = null;
@@ -167,9 +166,13 @@ let isShellMode = false;
  * 创建应用主窗口
  */
 const createWindow = () => {
+  if (mainBottomTimer) {
+    clearInterval(mainBottomTimer);
+    mainBottomTimer = null;
+  }
   // 获取屏幕尺寸
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
+  const { width, height } = primaryDisplay.bounds;
 
   // 应用图标路径
   const iconPath = path.join(__dirname, '../favicon.ico');
@@ -212,11 +215,22 @@ const createWindow = () => {
   });
 
   // 定期检查并保持置底状态
-  setInterval(() => {
+  const createdMainBottomTimer = setInterval(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       setWindowToBottom();
     }
   }, 2000);
+  mainBottomTimer = createdMainBottomTimer;
+
+  const createdMainWindow = mainWindow;
+  mainWindow.on('closed', () => {
+    if (mainBottomTimer === createdMainBottomTimer) {
+      clearInterval(createdMainBottomTimer);
+      mainBottomTimer = null;
+    }
+    if (mainWindow === createdMainWindow) mainWindow = null;
+    scheduleQuitIfNoPrimaryWindows();
+  });
 
   // 监听键盘事件，ESC 键关闭窗口
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -232,6 +246,13 @@ const createWindow = () => {
  */
 async function setWindowToBottom(window = mainWindow) {
   if (!window || window.isDestroyed()) return;
+  // Only the shell background windows are eligible for this operation. Keeping
+  // an allow-list prevents a stale/incorrect caller from moving taskbar or
+  // another independent top-level window behind the desktop.
+  if (window !== mainWindow && window !== dashboardWindow) return;
+  // 任务栏是独立的顶层窗口，绝不能复用桌面置底路径。
+  // 这条保护同时覆盖未来新增的焦点/定时回调，避免误把任务栏送到 HWND_BOTTOM。
+  if (isTaskbarWindow(window)) return;
   // 隐藏中的窗口不处理：置底脚本带 SWP_SHOWWINDOW 标志，会误把 Shell 模式下隐藏的界面重新显示
   if (!window.isVisible()) return;
 
@@ -252,12 +273,13 @@ async function setWindowToBottom(window = mainWindow) {
     // 调用 PowerShell 脚本
     await forceWindowToBottom(hwndNumber);
 
-    // 额外尝试 nircmd 方法
-    await forceWindowToBottomWithNircmd(hwndNumber);
-
   } catch (error) {
     console.error('Error setting window to bottom:', error.message);
     console.error('Error stack:', error.stack);
+  } finally {
+    // SetWindowPos(HWND_BOTTOM) must never leave the independent taskbar behind
+    // a maximized window, even when this operation raced with a focus change.
+    reassertTaskbarZOrder();
   }
 }
 
@@ -272,7 +294,7 @@ function forceWindowToBottomDelayed() {
     const hwndNumber = hwnd.readUInt32LE(0); // 正确获取 32 位窗口句柄
 
     // 使用 Windows API 强制置底
-    forceWindowToBottom(hwndNumber);
+    forceWindowToBottom(hwndNumber).finally(() => reassertTaskbarZOrder());
   }, 500);
 }
 
@@ -282,9 +304,18 @@ app.whenReady().then(async () => {
   await initConfig();
   // 运行时监听：passwd/shadow 变化后自动重建 users.json 并刷新 config.json 的 login 块
   config.startConfigWatch();
+  // A previous crash can leave Explorer's taskbar hidden. Restore it first;
+  // the desktop session will enqueue a hide after its custom taskbar appears.
+  void setNativeTaskbarVisibility(true, { force: true });
   createWindow();
   // 后台预热：启动音频/系统常驻服务并预取能力，避免用户打开控制中心时冷启动等待
   prewarmSystemServices();
+  // 任务栏运行窗口轮询（1.5s 间隔，增量推送桌面）
+  startTaskbarWindowPolling();
+  // 独立置顶任务栏窗口（盖在屏幕底部真实任务栏位置，不被最大化窗口遮挡）
+  initTaskbarFloatingState().then(() => {
+    createTaskbarWindow();
+  });
   // 首次运行投放欢迎通知（存储文件不存在时）
   fs.access(notifications.STORE_PATH).catch(() => {
     emitNotification({
@@ -357,16 +388,93 @@ app.on('window-all-closed', () => {
   }
 });
 
-// 退出前关闭常驻服务进程
-app.on('before-quit', () => {
-  config.stopConfigWatch();
-  if (audioServer) {
-    audioServer.kill();
-  }
-  if (sysServer) {
-    sysServer.kill();
-  }
+function hasPrimaryUiWindow() {
+  return [mainWindow, dashboardWindow].some((win) => win && !win.isDestroyed());
+}
+
+/**
+ * The independent taskbar is intentionally kept alive during a session, so
+ * Electron's window-all-closed event cannot detect the user closing the last
+ * login/desktop window. Treat that as an application quit unless it is an
+ * internal login/logout or Shell transition.
+ */
+function scheduleQuitIfNoPrimaryWindows() {
+  if (isQuitting || isShellMode || sessionTransitionInProgress) return;
+  setImmediate(() => {
+    if (isQuitting || isShellMode || sessionTransitionInProgress || hasPrimaryUiWindow()) return;
+    hideTaskbarWindow();
+    app.quit();
+  });
+}
+
+// 退出前先恢复 Explorer 任务栏并销毁独立任务栏窗口。
+// Electron 不会等待普通 async before-quit 回调，因此显式暂停退出，
+// 完成清理后再调用 app.quit()，避免残留 TOPMOST HWND。
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
+  event.preventDefault();
+  isQuitting = true;
+  cleanupBeforeQuit()
+    .catch((error) => console.error('[Quit] cleanup failed:', error.message))
+    .finally(() => app.quit());
 });
+
+async function cleanupBeforeQuit() {
+  config.stopConfigWatch();
+  sessionTransitionInProgress = true;
+  isShellMode = false;
+  stopTaskbarWindowPolling();
+
+  // Stop the launcher/restart path first so Shell mode cannot recreate a
+  // console while Electron is tearing down its windows.
+  const shellPid = amsysShellPid;
+  const launcher = amsysProcess;
+  amsysShellPid = null;
+  amsysProcess = null;
+  if (launcher && !launcher.killed) {
+    try { launcher.kill(); } catch {}
+  }
+  if (shellPid) {
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const killer = spawn('taskkill', ['/F', '/T', '/PID', String(shellPid)], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      killer.once('close', finish);
+      killer.once('error', finish);
+      setTimeout(finish, 2500);
+    });
+  }
+
+  stopTaskbarPinning();
+  if (taskbarWindow && !taskbarWindow.isDestroyed()) {
+    const win = taskbarWindow;
+    try { win.setAlwaysOnTop(false); } catch {}
+    try { win.hide(); } catch {}
+    try { win.destroy(); } catch {}
+    if (taskbarWindow === win) taskbarWindow = null;
+  }
+
+  // Restore Explorer before killing the window server. This also fixes the
+  // Shell-mode path where the custom taskbar was hidden but Explorer was not.
+  if (nativeTaskbarRequest) {
+    await nativeTaskbarRequest.catch(() => {});
+  }
+  const nativeRestore = await setNativeTaskbarVisibility(true, { force: true });
+  if (!nativeRestore || !nativeRestore.success) {
+    await restoreNativeTaskbarFallback();
+  }
+
+  if (audioServer) audioServer.kill();
+  if (sysServer) sysServer.kill();
+  if (windowServer) windowServer.kill();
+}
 
 // ==================== IPC 处理器 ====================
 
@@ -445,7 +553,10 @@ ipcMain.handle('config:setAccentColor', async (_, color, userId) => {
 });
 
 ipcMain.handle('config:setTaskbarMode', async (_, mode, userId) => {
-  return await config.setTaskbarMode(mode, userId);
+  const result = await config.setTaskbarMode(mode, userId);
+  taskbarFloatingState = mode !== 'docked';
+  positionTaskbarWindow();
+  return result;
 });
 
 ipcMain.handle('config:setDisplayProfile', async (_, profile, userId) => {
@@ -562,7 +673,7 @@ ipcMain.handle('window:openDashboard', async (_, userId) => {
     currentLoggedInUser = users.find(u => u.userid === userId);
   }
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
 
   const iconPath = path.join(__dirname, '../favicon.ico');
 
@@ -586,15 +697,28 @@ ipcMain.handle('window:openDashboard', async (_, userId) => {
 
   dashboardWindow.webContents.openDevTools();
 
+  let createdDashboardBottomTimer = null;
   dashboardWindow.webContents.on('did-finish-load', () => {
     console.log('Dashboard loaded, setting to bottom');
     setWindowToBottom(dashboardWindow);
 
-    setInterval(() => {
+    if (dashboardBottomTimer) clearInterval(dashboardBottomTimer);
+    createdDashboardBottomTimer = setInterval(() => {
       if (dashboardWindow && !dashboardWindow.isDestroyed()) {
         pushDashboardToBottom();
       }
     }, 2000);
+    dashboardBottomTimer = createdDashboardBottomTimer;
+  });
+
+  const createdDashboardWindow = dashboardWindow;
+  dashboardWindow.on('closed', () => {
+    if (dashboardBottomTimer === createdDashboardBottomTimer && createdDashboardBottomTimer) {
+      clearInterval(createdDashboardBottomTimer);
+      dashboardBottomTimer = null;
+    }
+    if (dashboardWindow === createdDashboardWindow) dashboardWindow = null;
+    scheduleQuitIfNoPrimaryWindows();
   });
 
   // 激活（点击桌面/浮层关闭后焦点回落）会把桌面抬到所有普通窗口之上，
@@ -610,6 +734,9 @@ ipcMain.handle('window:openDashboard', async (_, userId) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();
   }
+
+  // 独立任务栏窗口随桌面一起显示；注销后窗口可能已被关闭，此处按需重建。
+  showTaskbarWindow();
 });
 
 /**
@@ -626,19 +753,43 @@ async function pushDashboardToBottom() {
 }
 
 ipcMain.handle('window:logout', async () => {
-  currentLoggedInUser = null;
+  sessionTransitionInProgress = true;
+  try {
+    currentLoggedInUser = null;
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  const iconPath = path.join(__dirname, '../favicon.ico');
-
-  const allWindows = BrowserWindow.getAllWindows();
-  for (const win of allWindows) {
-    if (!win.isDestroyed()) {
-      win.close();
-    }
+  if (mainBottomTimer) {
+    clearInterval(mainBottomTimer);
+    mainBottomTimer = null;
+  }
+  if (dashboardBottomTimer) {
+    clearInterval(dashboardBottomTimer);
+    dashboardBottomTimer = null;
   }
 
-  mainWindow = new BrowserWindow({
+  // Leave the real Explorer taskbar available on the login screen. The
+  // independent taskbar itself is kept alive to avoid HWND reuse races, but it
+  // must remain hidden until the next desktop session.
+  hideTaskbarWindow();
+  await requestNativeTaskbarRestore();
+
+  const { width, height } = screen.getPrimaryDisplay().bounds;
+  const iconPath = path.join(__dirname, '../favicon.ico');
+
+    const allWindows = BrowserWindow.getAllWindows();
+    for (const win of allWindows) {
+      if (!win.isDestroyed()) {
+      // Keep the independent taskbar HWND alive across logout. Closing it here
+      // allows a pending desktop HWND_BOTTOM request to hit a reused handle
+      // during the next login. It remains hidden until the next dashboard.
+        if (typeof taskbarWindow !== 'undefined' && win === taskbarWindow) {
+          win.hide();
+          continue;
+        }
+        win.close();
+      }
+    }
+
+    mainWindow = new BrowserWindow({
     width: width,
     height: height,
     x: 0,
@@ -657,32 +808,46 @@ ipcMain.handle('window:logout', async () => {
     }
   });
 
-  mainWindow.setPosition(0, 0);
-  mainWindow.setSize(width, height);
+    mainWindow.setPosition(0, 0);
+    mainWindow.setSize(width, height);
 
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools();
 
-  mainWindow.on('show', () => {
-    setWindowToBottom();
-  });
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    setWindowToBottom();
-  });
-
-  setInterval(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.on('show', () => {
       setWindowToBottom();
-    }
-  }, 2000);
+    });
 
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'Escape' && !input.control && !input.alt && !input.meta) {
-      mainWindow.close();
-    }
-  });
+    mainWindow.webContents.on('did-finish-load', () => {
+      setWindowToBottom();
+    });
+
+    const createdLoginBottomTimer = setInterval(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setWindowToBottom();
+      }
+    }, 2000);
+    mainBottomTimer = createdLoginBottomTimer;
+
+    const createdLoginWindow = mainWindow;
+    mainWindow.on('closed', () => {
+      if (mainBottomTimer === createdLoginBottomTimer) {
+        clearInterval(createdLoginBottomTimer);
+        mainBottomTimer = null;
+      }
+      if (mainWindow === createdLoginWindow) mainWindow = null;
+      scheduleQuitIfNoPrimaryWindows();
+    });
+
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'Escape' && !input.control && !input.alt && !input.meta) {
+        mainWindow.close();
+      }
+    });
+  } finally {
+    sessionTransitionInProgress = false;
+  }
 });
 
 // ==================== 浮层窗口（开始菜单 / 日历，悬浮于所有窗口之上） ====================
@@ -800,7 +965,7 @@ async function getNotifyListData() {
  */
 async function broadcastNotifications() {
   const data = await getNotifyListData();
-  const wins = [dashboardWindow, calendarWindow, messageWindow].filter((w) => w && !w.isDestroyed());
+  const wins = [dashboardWindow, calendarWindow, messageWindow, taskbarWindow].filter((w) => w && !w.isDestroyed());
   for (const win of wins) {
     win.webContents.send('notify:list', data);
   }
@@ -863,16 +1028,25 @@ function getTaskbarTop(isFloating) {
   return isFloating ? 56 : 48;
 }
 
+// ==================== 任务栏模式状态（独立任务栏窗口定位用） ====================
+let taskbarFloatingState = true;
+
+async function initTaskbarFloatingState() {
+  try {
+    const uid = await resolveCurrentUserId();
+    const settings = await config.getSettings(uid);
+    taskbarFloatingState = settings.taskbar !== 'docked';
+  } catch {}
+}
+
 function broadcastStartMenuState(open) {
-  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-    dashboardWindow.webContents.send('startmenu:state', open);
-  }
+  const wins = [dashboardWindow, taskbarWindow].filter((w) => w && !w.isDestroyed());
+  for (const win of wins) win.webContents.send('startmenu:state', open);
 }
 
 function broadcastCalendarState(open) {
-  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-    dashboardWindow.webContents.send('calendar:state', open);
-  }
+  const wins = [dashboardWindow, taskbarWindow].filter((w) => w && !w.isDestroyed());
+  for (const win of wins) win.webContents.send('calendar:state', open);
 }
 
 // ---- 开始菜单窗口 ----
@@ -881,7 +1055,7 @@ let startMenuModalOpen = false; // 开始菜单内部确认弹窗（自定义悬
 
 function positionStartMenuWindow(isFloating) {
   if (!startMenuWindow || startMenuWindow.isDestroyed()) return;
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
   const taskbarTop = getTaskbarTop(isFloating);
   // 高度自适应屏幕：应用列表在窗口内部滚动，避免开始菜单过高超出屏幕
   const W = 400;
@@ -1013,7 +1187,7 @@ let messageWindow = null;
 
 function positionCalendarWindow(isFloating) {
   if (!calendarWindow || calendarWindow.isDestroyed()) return;
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
   const W = 280;
   const H = 384;
   const taskbarTop = getTaskbarTop(isFloating);
@@ -1042,7 +1216,7 @@ async function pushMessageTheme() {
  */
 function positionMessageWindow(isFloating) {
   if (!messageWindow || messageWindow.isDestroyed()) return;
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
   const W = 280;
   // 顶部留白：消息面板绝不顶到屏幕顶端
   const TOP_MARGIN = 16;
@@ -1186,13 +1360,346 @@ ipcMain.on('message:hide', () => {
   hideCalendarWindow();
 });
 
+// ---- 独立任务栏窗口（始终置顶，盖在屏幕底部真实任务栏位置） ----
+// var is intentional here: Squirrel can trigger app.quit() while this module
+// is still evaluating, before the taskbar declarations are reached.
+var taskbarWindow = null;
+var taskbarPinTimer = null;
+var taskbarPinInFlight = null;
+var taskbarPinPending = false;
+var taskbarLastPinAt = 0;
+var taskbarHwnd = 0;
+var nativeTaskbarHidden = false;
+var nativeTaskbarRequest = null;
+
+function getNativeWindowHandleNumber(window) {
+  if (!window || window.isDestroyed()) return 0;
+  const handle = window.getNativeWindowHandle();
+  if (!handle || handle.length < 4) return 0;
+  // HWND 在 Windows 上通常是 32 位值，即使 Electron 返回 8 字节句柄。
+  // HWND is a 32-bit value on Windows even in a 64-bit Electron process.
+  return handle.readUInt32LE(0);
+}
+
+/**
+ * Keep the generic desktop置底 path from ever accepting the independent taskbar.
+ * Comparing the native handle as well as the BrowserWindow reference protects
+ * against a stale reference during logout/re-login window recreation.
+ */
+function isTaskbarWindow(window) {
+  if (!window || window.isDestroyed()) return false;
+  if (typeof taskbarWindow !== 'undefined' && taskbarWindow && window === taskbarWindow) {
+    return true;
+  }
+  if (typeof taskbarHwnd !== 'undefined' && taskbarHwnd) {
+    return getNativeWindowHandleNumber(window) === taskbarHwnd;
+  }
+  return false;
+}
+
+/**
+ * Explorer's taskbar sits underneath transparent regions of the floating
+ * custom taskbar. Hide it while the custom shell is visible so the margins
+ * reveal the desktop wallpaper instead of a second taskbar.
+ */
+function setNativeTaskbarVisibility(visible, { force = false } = {}) {
+  const nextHidden = !visible;
+  if (!force && nativeTaskbarHidden === nextHidden && !nativeTaskbarRequest) {
+    return Promise.resolve({ success: true, cached: true });
+  }
+
+  // Queue visibility changes instead of returning the in-flight request. A
+  // hide issued while the desktop is shown can race with logout/show; the
+  // latter must still run after the former completes.
+  const previous = nativeTaskbarRequest || Promise.resolve();
+  const operation = previous
+    .catch(() => {})
+    .then(async () => {
+      if (!force && nativeTaskbarHidden === nextHidden) {
+        return { success: true, cached: true };
+      }
+      try {
+        const result = await windowServer.command(
+          'nativeTaskbar',
+          [visible ? 'show' : 'hide'],
+          3000,
+        );
+        if (result && result.success) nativeTaskbarHidden = nextHidden;
+        return result || { success: false };
+      } catch (error) {
+        console.warn(`[Taskbar] Failed to ${visible ? 'show' : 'hide'} Explorer taskbar:`, error.message);
+        return { success: false, error: error.message };
+      }
+    });
+  const request = operation.finally(() => {
+    if (nativeTaskbarRequest === request) nativeTaskbarRequest = null;
+  });
+  nativeTaskbarRequest = request;
+  return request;
+}
+
+// Last-resort cleanup path. It deliberately starts a one-shot PowerShell
+// process instead of relying on windowServer, which may already have exited
+// during an abnormal shutdown or a broken shell session.
+async function runNativeTaskbarFallback(action) {
+  try {
+    const pwsh = await getPwshPath();
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const child = spawn(pwsh, [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', WINDOWS_SCRIPT,
+        'nativeTaskbar', action,
+      ], { stdio: 'ignore', windowsHide: true });
+      child.once('close', finish);
+      child.once('error', finish);
+      setTimeout(finish, 3500);
+    });
+  } catch (error) {
+    console.warn(`[Taskbar] Fallback Explorer taskbar ${action} failed:`, error.message);
+  }
+}
+
+async function restoreNativeTaskbarFallback() {
+  return runNativeTaskbarFallback('show');
+}
+
+async function requestNativeTaskbarHide() {
+  const result = await setNativeTaskbarVisibility(false);
+  if (!result || !result.success) {
+    await runNativeTaskbarFallback('hide');
+  }
+  return result;
+}
+
+function hideTaskbarWindow({ restoreNative = true } = {}) {
+  if (taskbarWindow && !taskbarWindow.isDestroyed()) {
+    taskbarWindow.hide();
+  }
+  // Shell mode owns the whole screen; never restore Explorer's taskbar from a
+  // late logout/overlay callback while the amsys console is active.
+  if (restoreNative && !isShellMode) {
+    void requestNativeTaskbarRestore();
+  }
+}
+
+async function requestNativeTaskbarRestore() {
+  const result = await setNativeTaskbarVisibility(true);
+  if (!result || !result.success) {
+    await restoreNativeTaskbarFallback();
+  }
+  return result;
+}
+
+function reassertTaskbarZOrder() {
+  if (typeof pinTaskbarWindow !== 'function') return;
+  try {
+    pinTaskbarWindow(true);
+  } catch (error) {
+    // The taskbar can be in the middle of being destroyed during logout/quit.
+    if (error && error.message) {
+      console.warn('[Taskbar] z-order reassertion skipped:', error.message);
+    }
+  }
+}
+
+/**
+ * 将独立任务栏提升到最高的非激活层级。
+ *
+ * Explorer 的 Shell_TrayWnd 自身也是 TOPMOST，普通 alwaysOnTop（floating）
+ * 会在 Explorer 获得焦点后落到它下面。因此这里同时使用 Electron 的
+ * screen-saver 层级和 Win32 SetWindowPos(HWND_TOPMOST) 做幂等校正。
+ */
+function pinTaskbarWindow(force = false) {
+  // Pin hidden taskbars as well. This establishes WS_EX_TOPMOST before login
+  // and keeps the HWND protected while the shell is locked/logged out.
+  if (!taskbarWindow || taskbarWindow.isDestroyed()) return;
+
+  const now = Date.now();
+  if (!force && now - taskbarLastPinAt < 700) return;
+  taskbarLastPinAt = now;
+
+  try {
+    taskbarWindow.setAlwaysOnTop(true, 'screen-saver');
+    taskbarWindow.moveTop();
+  } catch (error) {
+    console.warn('[Taskbar] Electron topmost assertion failed:', error.message);
+  }
+
+  const hwnd = getNativeWindowHandleNumber(taskbarWindow);
+  if (!hwnd || !windowServer) return;
+  taskbarHwnd = hwnd;
+  if (taskbarPinInFlight) {
+    taskbarPinPending = true;
+    return;
+  }
+  taskbarPinInFlight = windowServer.command('taskbarPin', [hwnd], 3000)
+    .catch((error) => {
+      // 服务启动早期可能尚未可用；下一次定时断言会重试。
+      console.warn('[Taskbar] Win32 topmost assertion failed:', error.message);
+    })
+    .finally(() => {
+      taskbarPinInFlight = null;
+      if (taskbarPinPending) {
+        taskbarPinPending = false;
+        // A desktop HWND_BOTTOM operation may have raced this request. Re-run
+        // once after the in-flight native command has completed.
+        reassertTaskbarZOrder();
+      }
+    });
+}
+
+function startTaskbarPinning() {
+  if (taskbarPinTimer) return;
+  taskbarPinTimer = setInterval(() => pinTaskbarWindow(), 900);
+}
+
+function stopTaskbarPinning() {
+  if (!taskbarPinTimer) return;
+  clearInterval(taskbarPinTimer);
+  taskbarPinTimer = null;
+}
+
+function positionTaskbarWindow() {
+  if (!taskbarWindow || taskbarWindow.isDestroyed()) return;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
+  const barW = taskbarFloatingState ? width - 32 : width;
+  const barX = taskbarFloatingState ? 16 : 0;
+  const barY = height - 48 - (taskbarFloatingState ? 8 : 0);
+  taskbarWindow.setBounds({ x: barX, y: barY, width: barW, height: 48 });
+  // setBounds 可能触发 Windows 重新排 Z 序，定位后立即重新断言置顶。
+  pinTaskbarWindow(true);
+}
+
+async function pushTaskbarTheme() {
+  const account = await resolveAccount();
+  const { theme, accentColor } = await resolveUserTheme(account);
+  if (taskbarWindow && !taskbarWindow.isDestroyed()) {
+    taskbarWindow.webContents.send('taskbar:theme', {
+      theme,
+      accentColor,
+      isTaskbarFloating: taskbarFloatingState,
+    });
+  }
+}
+
+function createTaskbarWindow() {
+  if (taskbarWindow && !taskbarWindow.isDestroyed()) return;
+  taskbarWindow = new BrowserWindow({
+    x: 0,
+    y: 0,
+    width: 200,
+    height: 48,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    alwaysOnTop: true,
+    focusable: true,
+    skipTaskbar: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  // Establish the native topmost style before any desktop HWND_BOTTOM request
+  // can race with this window's first show().
+  try {
+    taskbarWindow.setAlwaysOnTop(true, 'screen-saver');
+  } catch (error) {
+    console.warn('[Taskbar] Initial topmost assertion failed:', error.message);
+  }
+  taskbarHwnd = getNativeWindowHandleNumber(taskbarWindow);
+  taskbarWindow.loadFile(path.join(__dirname, 'taskbar.html'));
+
+  taskbarWindow.webContents.on('did-finish-load', () => {
+    pushTaskbarTheme();
+    sendTaskbarWindows(lastTaskbarWindowsGroups);
+    broadcastNotifications();
+    pinTaskbarWindow(true);
+  });
+  taskbarWindow.on('show', () => {
+    // Shell mode has no desktop UI. A queued show from the previous desktop
+    // session must not resurrect the taskbar while amsys owns the screen.
+    if (isShellMode) {
+      taskbarWindow.hide();
+      return;
+    }
+    pinTaskbarWindow(true);
+  });
+  taskbarWindow.on('focus', () => pinTaskbarWindow(true));
+  taskbarWindow.on('blur', () => pinTaskbarWindow(true));
+  const createdTaskbarWindow = taskbarWindow;
+  taskbarWindow.on('closed', () => {
+    stopTaskbarPinning();
+    taskbarPinPending = false;
+    taskbarPinInFlight = null;
+    taskbarHwnd = 0;
+    if (taskbarWindow === createdTaskbarWindow) taskbarWindow = null;
+    if (!isQuitting) {
+      // Keep Explorer hidden if the custom taskbar is closed during Shell
+      // mode; restoring it here would leak a taskbar into the amsys screen.
+      if (isShellMode) void requestNativeTaskbarHide();
+      else void requestNativeTaskbarRestore();
+      scheduleQuitIfNoPrimaryWindows();
+    }
+  });
+
+  positionTaskbarWindow();
+  startTaskbarPinning();
+  // 仅在桌面窗口可见时显示（登录界面 / 锁屏不显示任务栏）
+  if (!isShellMode && dashboardWindow && !dashboardWindow.isDestroyed() && dashboardWindow.isVisible()) {
+    taskbarWindow.show();
+    pinTaskbarWindow(true);
+    void requestNativeTaskbarHide();
+  }
+}
+
+function showTaskbarWindow() {
+  // The taskbar belongs to the desktop, not the login/lock/shell screens.
+  if (isShellMode) {
+    hideTaskbarWindow({ restoreNative: false });
+    return;
+  }
+  if (!dashboardWindow || dashboardWindow.isDestroyed() || !dashboardWindow.isVisible()) {
+    hideTaskbarWindow();
+    return;
+  }
+  if (!taskbarWindow || taskbarWindow.isDestroyed()) {
+    createTaskbarWindow();
+  }
+  if (taskbarWindow && !taskbarWindow.isDestroyed()) {
+    taskbarWindow.show();
+    pinTaskbarWindow(true);
+    void requestNativeTaskbarHide();
+  }
+}
+
+ipcMain.handle('taskbar:setMode', (_, mode) => {
+  taskbarFloatingState = mode !== 'docked';
+  positionTaskbarWindow();
+  pinTaskbarWindow(true);
+  return { success: true };
+});
+
 /**
  * 隐藏所有浮层窗口（Shell 模式 / 锁屏时调用）
  */
-function hideOverlayWindows() {
+function hideOverlayWindows({ restoreNativeTaskbar = true } = {}) {
   hideStartMenuWindow();
   hideCalendarWindow();
   hideMessageWindow();
+  hideTaskbarWindow({ restoreNative: restoreNativeTaskbar });
   if (controlCenterWindow && !controlCenterWindow.isDestroyed()) {
     controlCenterWindow.hide();
   }
@@ -1211,7 +1718,7 @@ async function openSettingsWindow(settingsData = {}) {
     return { success: true };
   }
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
   const iconPath = path.join(__dirname, '../favicon.ico');
   const theme = settingsData.theme || 'dark';
   const accentColor = settingsData.accentColor || '#0078D4';
@@ -1371,7 +1878,7 @@ ipcMain.handle('usermgr:show-new', async () => {
     return { success: true };
   }
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
   const W = 420;
   const H = 540;
   userFormWindow = new BrowserWindow({
@@ -1594,10 +2101,11 @@ ipcMain.handle('storage:quickCleanup', async () => {
 // 设置变更事件
 ipcMain.on('settings:change', (event, change) => {
   console.log('[Settings IPC] settings:change received:', change);
-  // 发送到 dashboard 窗口
+  // 发送到 dashboard 与独立任务栏窗口
   const windows = BrowserWindow.getAllWindows();
   windows.forEach(win => {
-    if (win.webContents.getURL().includes('dashboard')) {
+    const url = win.webContents.getURL();
+    if (url.includes('dashboard') || url.includes('taskbar')) {
       win.webContents.send('settings:change', change);
     }
   });
@@ -1612,7 +2120,7 @@ ipcMain.handle('pkgmanager:show', async (event, options = {}) => {
     return { success: true };
   }
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
   const WIN_W = 420;
   const WIN_H = 560;
   const theme = options.theme || 'dark';
@@ -1654,7 +2162,7 @@ ipcMain.handle('pkgmanager:show', async (event, options = {}) => {
 ipcMain.handle('properties:show', async (event, appData) => {
   console.log('[Properties IPC] properties:show received, appData:', JSON.stringify(appData));
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
   const iconPath = path.join(__dirname, '../favicon.ico');
 
   const propsWindow = new BrowserWindow({
@@ -2306,7 +2814,7 @@ ipcMain.handle('screen:lock', async () => {
   // 锁屏时隐藏所有浮层窗口
   hideOverlayWindows();
 
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const { width, height } = screen.getPrimaryDisplay().bounds;
 
   lockWindow = new BrowserWindow({
     width: width,
@@ -2370,6 +2878,7 @@ ipcMain.on('lockscreen:unlock', () => {
     lockWindow.close();
     lockWindow = null;
   }
+  showTaskbarWindow();
 });
 
 /**
@@ -2490,6 +2999,7 @@ function showMainUI() {
   } else {
     createWindow();
   }
+  showTaskbarWindow();
 }
 
 ipcMain.on('auth:shell', () => {
@@ -2497,8 +3007,9 @@ ipcMain.on('auth:shell', () => {
 
   isShellMode = true;
 
-  // 隐藏所有浮层窗口
-  hideOverlayWindows();
+  // Shell 模式不保留任何桌面 UI：同时隐藏自定义任务栏和 Explorer 原生任务栏。
+  hideOverlayWindows({ restoreNativeTaskbar: false });
+  void requestNativeTaskbarHide();
 
   if (dashboardWindow && !dashboardWindow.isDestroyed()) {
     dashboardWindow.hide();
@@ -2506,6 +3017,9 @@ ipcMain.on('auth:shell', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.hide();
   }
+
+  // 再执行一次幂等隐藏，覆盖进入 Shell 时可能排队的任务栏 show 请求。
+  hideTaskbarWindow({ restoreNative: false });
 
   startAmsysProcess();
 });
@@ -2551,7 +3065,7 @@ ipcMain.handle('control-center:show', async () => {
       controlCenterWindow.webContents.reload();
       // 重载后必然回到主视图，重置为原始尺寸，避免混音器残留的 340x520
       const primaryDisplay = screen.getPrimaryDisplay();
-      const { width: sw, height: sh } = primaryDisplay.workAreaSize;
+      const { width: sw, height: sh } = primaryDisplay.bounds;
       const BOTTOM_MARGIN = 68;
       controlCenterWindow.setSize(320, 420);
       controlCenterWindow.setPosition(sw - 320 - 16, sh - 420 - BOTTOM_MARGIN);
@@ -2564,7 +3078,7 @@ ipcMain.handle('control-center:show', async () => {
   }
 
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
+  const { width, height } = primaryDisplay.bounds;
   const CONTROL_CENTER_WIDTH = 320;
   const CONTROL_CENTER_HEIGHT = 420;
   // 悬浮任务栏：底部 8px 起、高 48px，面板定位在其上方并留 12px 间距
@@ -2617,7 +3131,7 @@ ipcMain.handle('control-center:resize', async (_, width, height) => {
     const h = Math.max(320, Math.min(900, parseInt(height) || 420));
     controlCenterWindow.setSize(w, h);
     const primaryDisplay = screen.getPrimaryDisplay();
-    const { width: sw, height: sh } = primaryDisplay.workAreaSize;
+    const { width: sw, height: sh } = primaryDisplay.bounds;
     const BOTTOM_MARGIN = 68;
     controlCenterWindow.setPosition(sw - w - 16, sh - h - BOTTOM_MARGIN);
     return { success: true };
@@ -2799,8 +3313,154 @@ class PwshServer {
   }
 }
 
-const audioServer = new PwshServer(AUDIO_SCRIPT);
-const sysServer = new PwshServer(SYS_SCRIPT);
+// These services are also var-declared because the Squirrel startup path may
+// quit before module evaluation reaches their initialization.
+var audioServer = new PwshServer(AUDIO_SCRIPT);
+var sysServer = new PwshServer(SYS_SCRIPT);
+var windowServer = new PwshServer(WINDOWS_SCRIPT);
+
+// ==================== 任务栏：运行中前台窗口 ====================
+// 轮询 windows.ps1（EnumWindows）获取可见顶级窗口，推送桌面任务栏渲染；
+// 点击按钮时反向执行 激活/最小化。排除本进程（AmengUI 自身窗口）。
+// 图标由 windows.ps1 直接提取（窗口自身图标/UWP 包图标），并按应用身份分组堆叠。
+
+var taskbarWindowsTimer = null;
+let lastTaskbarWindowsKey = '';
+let lastTaskbarWindowsGroups = [];
+
+/**
+ * 将窗口列表按应用身份分组堆叠：
+ * 分组键 = UWP AppUserModelID → exe 路径 → 进程名
+ */
+function buildTaskbarGroups(windows) {
+  const groups = new Map();
+  for (const w of windows) {
+    const key = w.appId || w.exePath || w.processName || `pid:${w.pid}`;
+    if (!groups.has(key)) {
+      groups.set(key, { key, processName: w.processName, windows: [] });
+    }
+    groups.get(key).windows.push(w);
+  }
+  const result = [];
+  for (const g of groups.values()) {
+    const wins = g.windows;
+    const focused = wins.some((w) => w.focused);
+    const minimized = wins.every((w) => w.minimized);
+    // 组图标/标题：优先前台窗口，其次第一个有图标的窗口
+    const iconWin = wins.find((w) => w.focused && w.iconData)
+      || wins.find((w) => w.iconData)
+      || wins[0];
+    result.push({
+      key: g.key,
+      processName: g.processName,
+      title: (iconWin && (iconWin.title || iconWin.processName)) || g.processName || '窗口',
+      icon: (iconWin && iconWin.iconData) || null,
+      focused,
+      minimized,
+      count: wins.length,
+      windows: wins,
+    });
+  }
+  return result;
+}
+
+function sendTaskbarWindows(groups) {
+  const wins = [dashboardWindow, taskbarWindow].filter((w) => w && !w.isDestroyed());
+  for (const win of wins) {
+    win.webContents.send('taskbar:windows', { groups });
+  }
+}
+
+async function refreshTaskbarWindows() {
+  try {
+    const r = await windowServer.command('list', [], 4000);
+    const raw = (r && Array.isArray(r.windows)) ? r.windows : [];
+    const seen = new Set();
+    const windows = [];
+    for (const w of raw) {
+      if (!w || !w.hwnd) continue;
+      const hwnd = Number(w.hwnd);
+      if (!hwnd || seen.has(hwnd)) continue;
+      // 排除 AmengUI 自身进程的所有窗口（桌面/设置/控制中心/浮层等）
+      if (Number(w.pid) === process.pid) continue;
+      seen.add(hwnd);
+      windows.push({
+        hwnd,
+        pid: Number(w.pid),
+        title: String(w.title || ''),
+        processName: String(w.processName || ''),
+        exePath: String(w.exePath || ''),
+        appId: String(w.appId || ''),
+        iconData: w.iconData || null,
+        minimized: !!w.minimized,
+        focused: !!w.focused,
+      });
+    }
+    const groups = buildTaskbarGroups(windows);
+    // 差异比较只关心身份与状态，图标变化不触发重发
+    const key = JSON.stringify(groups.map((g) => ({
+      key: g.key,
+      count: g.count,
+      focused: g.focused,
+      minimized: g.minimized,
+      windows: g.windows.map((w) => ({ hwnd: w.hwnd, minimized: w.minimized, focused: w.focused })),
+    })));
+    if (key === lastTaskbarWindowsKey) return;
+    lastTaskbarWindowsKey = key;
+    lastTaskbarWindowsGroups = groups;
+    sendTaskbarWindows(groups);
+  } catch (e) {
+    // 服务不可用/超时：静默，下一轮再试
+  }
+}
+
+function startTaskbarWindowPolling() {
+  if (taskbarWindowsTimer) return;
+  const tick = async () => {
+    if (isQuitting) {
+      taskbarWindowsTimer = null;
+      return;
+    }
+    await refreshTaskbarWindows();
+    if (isQuitting) {
+      taskbarWindowsTimer = null;
+      return;
+    }
+    taskbarWindowsTimer = setTimeout(tick, 1500);
+  };
+  taskbarWindowsTimer = setTimeout(tick, 1000);
+}
+
+function stopTaskbarWindowPolling() {
+  if (taskbarWindowsTimer) {
+    clearTimeout(taskbarWindowsTimer);
+    taskbarWindowsTimer = null;
+  }
+}
+
+ipcMain.handle('taskbar:list', async () => {
+  return { groups: lastTaskbarWindowsGroups };
+});
+
+ipcMain.handle('taskbar:activate', async (_, hwnd) => {
+  try {
+    const r = await windowServer.command('activate', [Number(hwnd) || 0], 3000);
+    setTimeout(() => refreshTaskbarWindows(), 400);
+    return { success: !!(r && r.success) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('taskbar:minimize', async (_, hwnd) => {
+  try {
+    const r = await windowServer.command('minimize', [Number(hwnd) || 0], 3000);
+    setTimeout(() => refreshTaskbarWindows(), 400);
+    return { success: !!(r && r.success) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
 
 // 能力探测缓存（10 分钟；应用启动时已后台预热）
 let capabilitiesCache = null;
@@ -2820,6 +3480,7 @@ async function getCapabilities(force = false) {
     audio: !(audioRes && audioRes.audio === false),
     brightness: !(sysRes && sysRes.brightness === false),
     isLaptop: !!(sysRes && sysRes.isLaptop),
+    hasBattery: !!(sysRes && sysRes.hasBattery),
   };
   capabilitiesCache = caps;
   capabilitiesCacheAt = now;
@@ -2834,6 +3495,10 @@ function prewarmSystemServices() {
   // 音频服务首启会编译 Core Audio COM 互操作代码（数秒），提前完成
   audioServer.command('capabilities', [], 30000).catch((e) => {
     console.error('Audio prewarm failed:', e.message);
+  });
+  // 窗口服务首启会编译 Win32 互操作代码（数秒），提前完成
+  windowServer.command('list', [], 10000).catch((e) => {
+    console.error('Window prewarm failed:', e.message);
   });
   // 系统服务首启 + 能力枚举 + 亮度/网络/蓝牙状态预热（WMI/PnP 首次调用较慢）
   getCapabilities()
@@ -2929,6 +3594,19 @@ ipcMain.handle('system:setSessionMute', async (_, pid, mute) => {
 
 ipcMain.handle('system:getCapabilities', async () => {
   return await getCapabilities();
+});
+
+ipcMain.handle('system:getBatteryStatus', async () => {
+  try {
+    const r = await sysServer.command('batteryStatus', [], 15000);
+    return {
+      success: !!(r && r.success),
+      hasBattery: !!(r && r.hasBattery),
+      percent: (r && typeof r.percent === 'number') ? Math.max(0, Math.min(100, Math.round(r.percent))) : -1,
+    };
+  } catch (e) {
+    return { success: false, hasBattery: false, percent: -1, error: e.message };
+  }
 });
 
 ipcMain.handle('system:getBrightness', async () => {

@@ -3,16 +3,67 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>欢迎</title>
+  <title>任务栏</title>
   <link rel="stylesheet" href="dashboard.css">
+  <style>
+    /* 独立任务栏窗口：窗口尺寸即任务栏尺寸，任务栏铺满窗口 */
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* dashboard.css has a more-specific bright-theme body background. Keep
+       the transparent parts of this independent window transparent in both
+       themes so its margins show the desktop wallpaper underneath. */
+    html.taskbar-window,
+    body.taskbar-window,
+    body.taskbar-window.theme-bright {
+      background: transparent !important;
+      background-color: transparent !important;
+      background-image: none !important;
+    }
+
+    /* 独立窗口必须遮住 Explorer 原任务栏，避免其图标从毛玻璃层透出。 */
+    body.taskbar-window .taskbar {
+      background: rgb(30, 30, 30);
+    }
+
+    body.taskbar-window.theme-bright .taskbar {
+      background: rgb(245, 245, 245);
+    }
+
+    body.taskbar-floating .taskbar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: auto;
+      height: auto;
+      transform: none;
+      border-radius: 12px;
+    }
+
+    body.taskbar-docked .taskbar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: auto;
+      height: auto;
+      transform: none;
+      border-radius: 0;
+    }
+  </style>
 </head>
-<body class="dashboard-page">
-  <div class="container">
-    <h1>欢迎回来！</h1>
-    <p id="welcome-user"></p>
-  </div>
-  
-  <!-- 任务栏 -->
+<body class="taskbar-window taskbar-floating">
+  <!-- 独立始终置顶任务栏（盖在屏幕底部真实任务栏位置） -->
   <div id="taskbar" class="taskbar floating">
     <!-- 开始按钮 -->
     <div class="start-btn" id="start-btn">
@@ -26,7 +77,7 @@
 
     <!-- 运行中窗口（前台程序） -->
     <div class="taskbar-windows" id="taskbar-windows"></div>
-    
+
     <!-- 时间显示 -->
     <div class="taskbar-time-container">
       <!-- 有新消息时显示在时间左侧的铃铛（仅指示，点击时间按钮打开消息面板） -->
@@ -55,6 +106,6 @@
     </div>
   </div>
 
-  <script src="dashboard.js"></script>
+  <script src="taskbar.js"></script>
 </body>
 </html>

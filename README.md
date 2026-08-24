@@ -109,7 +109,9 @@ npm install
 npm start
 ```
 
-### 打包构建
+### 可选：发布构建
+
+开发和源码级验证不需要先打包。需要生成发布目录或安装包时，再执行以下命令：
 
 ```bash
 # 打包（输出到 out/ 目录）
@@ -374,7 +376,7 @@ rot:user:1000:1000:rot:/home/rot:/bin/amsys
 9. **密码明文存储**：`config/users.json` 中密码以明文形式存储，仅适用于演示场景
 
 ### 架构与代码问题
-10. **打包配置不完整**：`forge.config.js` 的 `ignore` 规则排除了 `rootdir/` 与 `config/`，打包后首次运行需手动创建这些目录，未做自动初始化
+10. **发布配置不完整**：如果生成安装包，`forge.config.js` 的 `ignore` 规则会排除 `rootdir/` 与 `config/`，安装后首次运行需手动创建这些目录；开发模式不受影响
 11. **窗口置底性能开销**：每 2 秒通过 PowerShell 调用 Windows API 强制置底，频繁启动 PowerShell 进程，存在性能与资源开销
 12. **临时脚本文件清理**：控制中心系统控制功能会在 `os.tmpdir()` 创建临时 `.ps1` 文件，异常退出时可能残留
 13. **开发模式 DevTools 默认开启**：`mainWindow.webContents.openDevTools()` 与 `dashboardWindow.webContents.openDevTools()` 在生产环境应关闭
@@ -384,7 +386,7 @@ rot:user:1000:1000:rot:/home/rot:/bin/amsys
 - 引入 `nircmd.exe` 或原生 Node 扩展作为音量控制的可靠方案
 - 控制中心增加实时状态轮询，与系统真实状态同步
 - 完善 `.app` 文件格式，支持参数、工作目录、环境变量等字段
-- 打包时自动创建 `rootdir/` 与 `config/` 目录结构
+- 发布构建时自动创建 `rootdir/` 与 `config/` 目录结构
 - 生产环境关闭 DevTools，密码加密存储
 
 ## 开发对话与决策记录

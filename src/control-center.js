@@ -213,6 +213,10 @@ function applyCapabilities() {
     const item = $('brightness-item');
     if (item) item.classList.add('unsupported');
   }
+  if (capabilities.hasBattery === false) {
+    const section = document.querySelector('.battery-section');
+    if (section) section.classList.add('hidden');
+  }
 }
 
 async function loadInitialValues() {
@@ -254,6 +258,24 @@ async function loadInitialValues() {
         brightnessSlider.disabled = true;
       })
     );
+  }
+  // 电池：无电池设备隐藏整块，有电池显示真实电量
+  const batterySection = document.querySelector('.battery-section');
+  if (batterySection) {
+    if (capabilities && capabilities.hasBattery === false) {
+      batterySection.classList.add('hidden');
+    } else {
+      tasks.push(
+        window.electronAPI.system.getBatteryStatus().then((r) => {
+          if (r && r.success && r.hasBattery) {
+            const t = $('battery-text');
+            if (t) t.textContent = `${Math.max(0, Math.min(100, r.percent))}%`;
+          } else {
+            batterySection.classList.add('hidden');
+          }
+        }).catch(() => {})
+      );
+    }
   }
   await Promise.all(tasks);
 }

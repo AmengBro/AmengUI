@@ -47,9 +47,9 @@ HWL OS 当年被钉在耻辱柱上，不是因为它"不够底层"，而是因�
 |---|---|---|
 | **密码安全** | shadow 里是无盐 MD5，README 自认"演示用" | 一旦你对外宣称"多用户安全桌面"，这是第一个会被扒的洞。要么上 bcrypt/argon2 + salt，要么在 README 首页用大字写死"仅演示，勿用于真实凭据" |
 | **原生核心重复** | `com.amsys.app/`（C++ 全套）在 AmengUI 和 AmengExplorer 里各维护一份 | 典型的双份技术债，改一处忘一处。应抽成独立 repo / git submodule，两个项目引用同一份 |
-| **打包残缺** | README 承认 `rootdir/` 和 `config/` 被排除出构建，首次运行要手动建目录 | 别人 clone 下来跑不起来，第一印象直接崩。首次运行应有自动初始化 |
+| **发布配置残缺** | 制作安装包时 `rootdir/` 和 `config/` 可能被排除出构建，安装后首次运行要手动建目录 | 源码开发模式不受影响；需要发布时应补齐自动初始化 |
 | **性能 hack** | 每 2 秒跑一次 PowerShell 强制置底窗口 | 轮询 Windows 窗口层级是权宜之计，应用 Win32 hook 或 Electron 自带窗口 API 更稳 |
-| **二进制直接进 git** | `amsys.exe` 在多处提交；AmengExplorer 的 `root/root/` 里还提交了 `WinNTSetup 5.2.3.zip` | 仓库膨胀、不可复现（二进制没构建脚本）、第三方工具直接打包有 licensing 隐患。应只提交源码 + CMake，二进制靠 CI 产出 |
+| **二进制直接进 git** | `amsys.exe` 在多处提交；AmengExplorer 的 `root/root/` 里还提交了 `WinNTSetup 5.2.3.zip` | 仓库膨胀、不可复现（二进制没构建脚本）、第三方工具直接打包有 licensing 隐患。应只提交源码 + CMake；需要发布二进制时再由 CI 产出 |
 | **管理员权限强依赖** | 亮度/网络/飞行模式要管理员，普通用户静默失败 | 普通用户体验断裂，且安全模型不友好 |
 
 ---

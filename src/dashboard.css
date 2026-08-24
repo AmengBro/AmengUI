@@ -139,6 +139,12 @@ body.theme-bright .taskbar.docked {
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.15);
 }
 
+/* 任务栏已迁移到独立 BrowserWindow；桌面窗口只保留桌面内容，
+   避免内嵌副本被桌面置底逻辑一起带到底部。 */
+body.dashboard-page > #taskbar {
+  display: none !important;
+}
+
 /* 开始按钮 */
 .start-btn {
   width: 40px;
@@ -171,6 +177,202 @@ body.theme-bright .start-btn:hover {
 
 body.theme-bright .start-btn.active {
   background: rgba(0, 0, 0, 0.15);
+}
+
+/* 任务栏运行中窗口（前台程序） */
+.taskbar-windows {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+}
+
+.taskbar-window-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.taskbar-window-btn img {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.taskbar-window-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 任务栏窗口三态指示：
+   未打开（预留）→ 无细条；运行/最小化 → 玻璃细条；焦点 → 红色细条 */
+.taskbar-window-btn.running::after,
+.taskbar-window-btn.focused::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 2px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.taskbar-window-btn.running::after {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.taskbar-window-btn.focused::after {
+  background: #E81123;
+}
+
+.taskbar-window-btn.minimized {
+  opacity: 0.45;
+}
+
+/* 多窗口堆叠角标 */
+.taskbar-window-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: rgba(40, 40, 40, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: white;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+
+body.theme-bright .taskbar-window-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+body.theme-bright .taskbar-window-btn.running::after {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+body.theme-bright .taskbar-window-btn.focused::after {
+  background: #E81123;
+}
+
+body.theme-bright .taskbar-window-count {
+  background: rgba(245, 245, 245, 0.95);
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #333;
+}
+
+/* 多窗口应用堆叠展开列表 */
+.taskbar-window-popup {
+  position: fixed;
+  z-index: 2000;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: rgba(40, 40, 40, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.taskbar-window-popup::-webkit-scrollbar {
+  width: 4px;
+}
+
+.taskbar-window-popup::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+
+.taskbar-window-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.9);
+  transition: background 0.15s;
+}
+
+.taskbar-window-popup-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.taskbar-window-popup-item.active {
+  background: rgba(232, 17, 35, 0.18);
+}
+
+.taskbar-window-popup-item.minimized {
+  opacity: 0.55;
+}
+
+.taskbar-window-popup-item img {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.taskbar-window-popup-label {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+body.theme-bright .taskbar-window-popup {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+body.theme-bright .taskbar-window-popup::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+body.theme-bright .taskbar-window-popup-item {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+body.theme-bright .taskbar-window-popup-item:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+body.theme-bright .taskbar-window-popup-item.active {
+  background: rgba(232, 17, 35, 0.12);
 }
 
 /* 时间显示容器 */

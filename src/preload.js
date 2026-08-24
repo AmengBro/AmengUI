@@ -153,7 +153,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 设置系统时区（需要管理员权限） */
     setTimeZone: (id) => ipcRenderer.invoke('system:setTimeZone', id),
     /** 获取系统能力（PE 兼容性探测） */
-    getCapabilities: () => ipcRenderer.invoke('system:getCapabilities')
+    getCapabilities: () => ipcRenderer.invoke('system:getCapabilities'),
+    /** 获取电池状态（无电池设备 hasBattery=false） */
+    getBatteryStatus: () => ipcRenderer.invoke('system:getBatteryStatus')
   },
 
   // 存储 API（磁盘空间 / 快速清理）
@@ -327,6 +329,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 监听消息面板窗口加载后下发的主题数据 */
     onTheme: (callback) => {
       ipcRenderer.on('message:theme', (event, data) => callback(data));
+    }
+  },
+
+  // 任务栏运行窗口 API
+  taskbar: {
+    /** 获取当前运行窗口列表（主进程缓存的最新快照） */
+    list: () => ipcRenderer.invoke('taskbar:list'),
+    /** 激活窗口（还原 + 置前） */
+    activate: (hwnd) => ipcRenderer.invoke('taskbar:activate', hwnd),
+    /** 最小化窗口 */
+    minimize: (hwnd) => ipcRenderer.invoke('taskbar:minimize', hwnd),
+    /** 同步任务栏模式（floating/docked），主进程据此定位独立任务栏窗口 */
+    setMode: (mode) => ipcRenderer.invoke('taskbar:setMode', mode),
+    /** 监听窗口列表变化（主进程轮询后推送） */
+    onWindows: (callback) => {
+      ipcRenderer.on('taskbar:windows', (event, data) => callback(data));
+    },
+    /** 监听任务栏窗口加载后下发的主题数据 */
+    onTheme: (callback) => {
+      ipcRenderer.on('taskbar:theme', (event, data) => callback(data));
     }
   },
 

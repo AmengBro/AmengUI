@@ -544,15 +544,25 @@ function Get-Capabilities {
   $btService = Get-Service bthserv -ErrorAction SilentlyContinue
   $btPnp = @(Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue)
   $pcType = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).PCSystemType
+  $hasBattery = $null -ne (Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue)
   $cap = [ordered]@{
     network = $adapters.Count -gt 0
     bluetooth = ($null -ne $btService) -or ($btPnp.Count -gt 0)
     brightness = $null -ne (Get-CimClass -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction SilentlyContinue)
     flightMode = (Test-FlightModeApi) -or (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Control\RadioManagement\SystemRadioState')
     isLaptop = ($pcType -eq 2)
+    hasBattery = $hasBattery
   }
   $script:cap = [pscustomobject]$cap
   return $script:cap
+}
+
+function Get-BatteryStatus {
+  $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue
+  if ($null -eq $bat) {
+    return [pscustomobject]@{ success = $true; hasBattery = $false; percent = -1 }
+  }
+  return [pscustomobject]@{ success = $true; hasBattery = $true; percent = [int]$bat.EstimatedChargeRemaining }
 }
 
 function Get-NetAdapterName {
@@ -850,7 +860,7 @@ function Invoke-WinrtDelegated {
 }
 
 function Get-BrightnessValue {
-  $v = (Get-WmiObject -Namespace root\WMI -Class WmiMonitorBrightness -ErrorAction SilentlyContinue).CurrentBrightness
+  $v = (Get-CimInstance -Namespace root\WMI -ClassName WmiMonitorBrightness -ErrorAction SilentlyContinue).CurrentBrightness
   if ($null -eq $v) { return [pscustomobject]@{ success = $false; brightness = -1 } }
   return [pscustomobject]@{ success = $true; brightness = [int]$v }
 }
@@ -861,7 +871,7 @@ function Set-BrightnessValue {
   if ($v -lt 0) { $v = 0 }
   if ($v -gt 100) { $v = 100 }
   try {
-    # 实测：Invoke-WmiMethod 返回成功但不生效（亮度不变）；
+    # 实测：旧 WMI 方法调用返回成功但不生效（亮度不变）；
     # Invoke-CimMethod + 命名参数（Timeout/Brightness）才能真正改变亮度
     $b = Get-CimInstance -Namespace root\WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop
     if ($null -eq $b) { throw 'brightness methods unavailable' }
@@ -1612,6 +1622,8 @@ function Invoke-SysCommand {
     Get-BrightnessValue
   } elseif ($cmd -eq 'setBrightness') {
     Set-BrightnessValue $cmdArgs[0]
+  } elseif ($cmd -eq 'batteryStatus') {
+    Get-BatteryStatus
   } elseif ($cmd -eq 'wifiForget') {
     Invoke-WifiForget ([string]$cmdArgs[0])
   } elseif ($cmd -eq 'timeStatus') {

@@ -87,6 +87,21 @@ function updateNotifyBadge(data) {
 }
 
 /**
+ * 无电池设备（台式机/PE）隐藏任务栏控制中心按钮里的电池图标
+ */
+async function applyBatteryVisibility() {
+  try {
+    const caps = await window.electronAPI.system.getCapabilities();
+    const icon = document.getElementById('cc-battery-icon');
+    if (icon && caps && caps.hasBattery === false) {
+      icon.style.display = 'none';
+    }
+  } catch (e) {
+    // 能力探测失败时保持显示，避免误隐藏
+  }
+}
+
+/**
  * 应用色温配置（应用层滤镜，PE 环境同样有效）
  * warm=暖光 / cool=冷光 / 其他=默认
  */
@@ -874,12 +889,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 绑定控制中心图标事件
   bindControlCenterEvents();
+  // 无电池设备隐藏电池图标
+  applyBatteryVisibility();
 
   // 绑定开始菜单/日历浮层按钮（独立置顶窗口）
   bindFloatingMenuEvents();
 
   // 绑定任务栏右键菜单
   bindTaskbarContextMenu();
+
+  // 绑定任务栏运行中窗口（前台程序）
+  bindTaskbarWindows();
 });
 
 // ==================== 浮层菜单（独立置顶窗口） ====================
@@ -933,6 +953,137 @@ function bindFloatingMenuEvents() {
   });
   window.electronAPI.desktop.onDisplayProfile((profile) => {
     applyDisplayProfile(profile);
+  });
+}
+
+// ==================== 任务栏运行中窗口（前台程序） ====================
+
+let taskbarPopupOpen = false;
+
+function closeTaskbarWindowPopup() {
+  const popup = document.getElementById('taskbar-window-popup');
+  if (popup) popup.remove();
+  taskbarPopupOpen = false;
+}
+
+/**
+ * 渲染任务栏运行窗口按钮（同应用窗口堆叠为一个按钮）
+ */
+function renderTaskbarWindows(data) {
+  const container = document.getElementById('taskbar-windows');
+  if (!container) return;
+  closeTaskbarWindowPopup();
+  const groups = (data && data.groups) || [];
+  container.innerHTML = '';
+
+  groups.forEach((g) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'taskbar-window-btn running'
+      + (g.focused ? ' focused' : '')
+      + (g.minimized && !g.focused ? ' minimized' : '');
+    btn.title = (g.title || g.processName || '窗口')
+      + (g.minimized ? '（已最小化）' : '')
+      + (g.count > 1 ? `（${g.count} 个窗口）` : '');
+    btn.setAttribute('aria-label', btn.title);
+
+    const icon = document.createElement('img');
+    icon.draggable = false;
+    icon.alt = '';
+    icon.src = g.icon || '../difproico.png';
+    icon.addEventListener('error', () => {
+      icon.src = '../difproico.png';
+    });
+    btn.appendChild(icon);
+
+    if (g.count > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'taskbar-window-count';
+      badge.textContent = String(g.count);
+      btn.appendChild(badge);
+    }
+
+    btn.addEventListener('click', () => {
+      if (g.windows.length <= 1) {
+        const w = g.windows[0];
+        // 已聚焦且未最小化 → 最小化；否则还原并置前
+        if (w.focused && !w.minimized) {
+          window.electronAPI.taskbar.minimize(w.hwnd);
+        } else {
+          window.electronAPI.taskbar.activate(w.hwnd);
+        }
+      } else {
+        toggleTaskbarWindowPopup(btn, g);
+      }
+    });
+
+    container.appendChild(btn);
+  });
+}
+
+/**
+ * 多窗口应用：点击按钮弹出窗口列表（堆叠展开）
+ */
+function toggleTaskbarWindowPopup(anchor, group) {
+  if (taskbarPopupOpen) {
+    closeTaskbarWindowPopup();
+    return;
+  }
+  const popup = document.createElement('div');
+  popup.className = 'taskbar-window-popup';
+  popup.id = 'taskbar-window-popup';
+
+  group.windows.forEach((w) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'taskbar-window-popup-item'
+      + (w.focused ? ' active' : '')
+      + (w.minimized ? ' minimized' : '');
+
+    const icon = document.createElement('img');
+    icon.draggable = false;
+    icon.alt = '';
+    icon.src = w.iconData || group.icon || '../difproico.png';
+    icon.addEventListener('error', () => {
+      icon.src = '../difproico.png';
+    });
+
+    const label = document.createElement('span');
+    label.className = 'taskbar-window-popup-label';
+    label.textContent = (w.title || w.processName || '窗口')
+      + (w.minimized ? '（已最小化）' : '');
+
+    item.appendChild(icon);
+    item.appendChild(label);
+    item.addEventListener('click', () => {
+      window.electronAPI.taskbar.activate(w.hwnd);
+      closeTaskbarWindowPopup();
+    });
+    popup.appendChild(item);
+  });
+
+  document.body.appendChild(popup);
+  const rect = anchor.getBoundingClientRect();
+  const pw = popup.offsetWidth;
+  const left = Math.max(8, Math.min(rect.left + rect.width / 2 - pw / 2, window.innerWidth - pw - 8));
+  const top = Math.max(8, rect.top - popup.offsetHeight - 8);
+  popup.style.left = `${left}px`;
+  popup.style.top = `${top}px`;
+  taskbarPopupOpen = true;
+}
+
+/**
+ * 绑定任务栏运行窗口：初始快照 + 主进程轮询推送
+ */
+function bindTaskbarWindows() {
+  window.electronAPI.taskbar.list()
+    .then((data) => renderTaskbarWindows(data))
+    .catch(() => {});
+  window.electronAPI.taskbar.onWindows((data) => renderTaskbarWindows(data));
+  document.addEventListener('click', (e) => {
+    if (taskbarPopupOpen && !e.target.closest('#taskbar-window-popup')) {
+      closeTaskbarWindowPopup();
+    }
   });
 }
 
