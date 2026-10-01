@@ -1,0 +1,140 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.preview-shell {
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(30, 30, 30, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  animation: preview-in 0.14s ease-out;
+}
+
+.preview-list {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.preview-card {
+  min-width: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.055);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.14s, border-color 0.14s, transform 0.14s;
+}
+
+.preview-card:hover {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.34);
+  transform: translateY(-1px);
+}
+
+.preview-card.active {
+  border-color: #E81123;
+}
+
+.preview-image {
+  width: 100%;
+  height: 169px;
+  flex: 1 1 auto;
+  min-height: 0;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.34);
+}
+
+.preview-fallback {
+  width: 100%;
+  height: 169px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.preview-fallback img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.preview-title {
+  min-width: 0;
+  padding: 0 2px 1px;
+  font-size: 12px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-state {
+  padding: 0 2px;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 10px;
+  line-height: 13px;
+}
+
+body.theme-bright .preview-shell {
+  background: rgba(248, 248, 248, 0.97);
+  border-color: rgba(0, 0, 0, 0.13);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.22);
+}
+
+body.theme-bright .preview-card {
+  color: rgba(0, 0, 0, 0.88);
+  background: rgba(0, 0, 0, 0.045);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body.theme-bright .preview-card:hover {
+  background: rgba(0, 0, 0, 0.09);
+  border-color: rgba(0, 0, 0, 0.24);
+}
+
+body.theme-bright .preview-state {
+  color: rgba(0, 0, 0, 0.52);
+}
+
+@keyframes preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

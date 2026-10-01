@@ -362,7 +362,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** 监听任务栏窗口加载后下发的主题数据 */
     onTheme: (callback) => {
       ipcRenderer.on('taskbar:theme', (event, data) => callback(data));
-    }
+    },
+    /** 显示任务栏悬停预览（主进程会捕获各窗口缩略图） */
+    previewShow: (group, anchor) => ipcRenderer.invoke('taskbar:preview:show', { group, anchor }),
+    /** 请求隐藏任务栏悬停预览 */
+    previewHide: () => ipcRenderer.send('taskbar:preview:hide'),
+    /** 预览窗口鼠标进入/离开保持通知 */
+    previewEnter: () => ipcRenderer.send('taskbar:preview:enter'),
+    previewLeave: () => ipcRenderer.send('taskbar:preview:leave'),
+  },
+
+  // 任务栏预览窗口 API（仅由 taskbar-preview.html 使用）
+  taskbarPreview: {
+    onData: (callback) => {
+      ipcRenderer.on('taskbar-preview:data', (event, data) => callback(data));
+    },
+    onTheme: (callback) => {
+      ipcRenderer.on('taskbar-preview:theme', (event, data) => callback(data));
+    },
+    enter: () => ipcRenderer.send('taskbar:preview:enter'),
+    leave: () => ipcRenderer.send('taskbar:preview:leave'),
   },
 
   // 桌面窗口 API

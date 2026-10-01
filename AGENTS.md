@@ -1589,6 +1589,42 @@ nonBroadcast 的加密/公开两分支正确；stub preload + Electron harness �
 （`dialog-overlay`）与 `openRenameDialog` 保留为不可达代码，便于后续重新开放
 时恢复；设备名称/型号仍照常展示。
 
+### 41. 注销 / Shell 模式下任务栏“消失一会儿又出现”（Electron moveTop 的 SWP_SHOWWINDOW）
+
+**用户反馈**：进入桌面后，注销（回登录界面）、进入 Shell 模式时，任务栏先消失，
+过一小会儿又显示出来。
+
+**根因（已核对 Electron 源码 v41.2.1 `shell/browser/native_window_views.cc`）**：
+`pinTaskbarWindow()` 每次断言置顶都会调用 `taskbarWindow.moveTop()`，而 Electron
+在 Windows 上把 `moveTop()` 实现为
+`SetWindowPos(hwnd, HWND_TOP, ..., SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)`
+——**`SWP_SHOWWINDOW` 会把 `hide()` 隐藏的窗口重新显示**。该断言被 900ms 置顶轮询、
+桌面每 2 秒置底后的 `reassertTaskbarZOrder`、任务栏 focus/blur、页面 `did-finish-load`
+等多个路径触发，所以任务栏在注销/锁屏/Shell 模式被隐藏后约 1 秒必然被重新显示；
+`taskbarWindow.on('show')` 的 Shell 守卫拦不住（原生显示不产生 Electron 的 show 事件）。
+同一处 `moveTop` 也会在窗口创建、页面加载完成时把尚未显示的任务栏显示出来。
+
+**修复**（`src/index.js`）：
+- 新增可见性意图标志 `taskbarWindowVisible`：只由 `showTaskbarWindow()` /
+  `createTaskbarWindow()` 置 `true`，`hideTaskbarWindow()` 与任务栏 `closed` 置 `false`；
+  `pinTaskbarWindow()` 仅在意图为可见时才调用 `moveTop()`。
+  `setAlwaysOnTop(true, 'screen-saver')`（经 Chromium `HWNDMessageHandler::SetAlwaysOnTop`）
+  与 Win32 `taskbarPin` 都只带 `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`，对隐藏窗口安全，
+  隐藏时仍保留置顶断言。
+- `startTaskbarPinning()` 的 900ms 轮询增加 `enforceTaskbarWindowVisibility()`：
+  意图为隐藏但 `isVisible()` 为真时幂等隐藏（只隐藏、从不显示，显示只走
+  `showTaskbarWindow()`），防止其它原生操作再次唤醒任务栏。
+
+**验证**：`node --check src/index.js` 通过；逐个核对了 Electron/Chromium 源码中
+`moveTop`、`SetAlwaysOnTop`、`SetZOrderLevel`、`SetNativeTaskbarVisibility`、`PinTaskbar`
+的 `SetWindowPos` 标志，确认修复路径不再包含 `SWP_SHOWWINDOW`。**实机 `npm start`
+验证待做**（当前 `node_modules` 为空，仅有 `node_modules.tar`）。
+
+**待确认**：注销时仍按原设计恢复 Explorer 原生任务栏（登录窗口位于 Z 序最底层且非置顶，
+遮不住原生任务栏，原生任务栏会压在登录界面底部栏“电源 / 切换用户 / 时间”之上）。
+若希望登录界面同样完全无任务栏，需要把 `window:logout` 里的
+`requestNativeTaskbarRestore()` 改为保持隐藏。
+
 ## 三、待解决问题与未来方向
 
 ### 当前验证规则

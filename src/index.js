@@ -3,7 +3,7 @@
  * 负责创建窗口、处理 IPC 通信和系统功能
  */
 
-const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, desktopCapturer } = require('electron');
 const path = require('node:path');
 const os = require('os');
 const fs = require('fs').promises;
@@ -438,6 +438,7 @@ app.on('before-quit', (event) => {
 async function cleanupBeforeQuit() {
   config.stopConfigWatch();
   stopSystemNotificationListener();
+  destroyTaskbarPreviewWindow();
   sessionTransitionInProgress = true;
   isShellMode = false;
   stopTaskbarWindowPolling();
@@ -1578,6 +1579,9 @@ var taskbarPinInFlight = null;
 var taskbarPinPending = false;
 var taskbarLastPinAt = 0;
 var taskbarHwnd = 0;
+// 任务栏“应当可见”的意图标志：只有 showTaskbarWindow()/createTaskbarWindow() 会置 true，
+// hideTaskbarWindow() 置 false。原生置顶操作据此决定是否允许调整层内顺序。
+var taskbarWindowVisible = false;
 var nativeTaskbarHidden = false;
 var nativeTaskbarRequest = null;
 
@@ -1688,6 +1692,11 @@ async function requestNativeTaskbarHide() {
 }
 
 function hideTaskbarWindow({ restoreNative = true } = {}) {
+  taskbarWindowVisible = false;
+  if (typeof taskbarPreviewRequest !== 'undefined') taskbarPreviewRequest++;
+  if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()) {
+    taskbarPreviewWindow.hide();
+  }
   if (taskbarWindow && !taskbarWindow.isDestroyed()) {
     taskbarWindow.hide();
   }
@@ -1735,8 +1744,14 @@ function pinTaskbarWindow(force = false) {
   taskbarLastPinAt = now;
 
   try {
+    // setAlwaysOnTop 与 taskbarPin 都只调用 SetWindowPos(HWND_TOPMOST,
+    // SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)，对隐藏中的窗口是安全的。
     taskbarWindow.setAlwaysOnTop(true, 'screen-saver');
-    taskbarWindow.moveTop();
+    // moveTop() 在 Windows 上用 SWP_SHOWWINDOW 实现（Electron
+    // native_window_views.cc），会把隐藏中的任务栏重新显示出来——注销回登录界面、
+    // 进入 Shell 模式后“任务栏消失一会儿又出现”的根因。
+    // 因此只在任务栏本应可见时调用，隐藏时必须跳过。
+    if (taskbarWindowVisible) taskbarWindow.moveTop();
   } catch (error) {
     console.warn('[Taskbar] Electron topmost assertion failed:', error.message);
   }
@@ -1764,9 +1779,26 @@ function pinTaskbarWindow(force = false) {
     });
 }
 
+/**
+ * 任务栏只属于桌面会话：登录界面（含注销回登录）、锁屏与 Shell 模式都必须保持隐藏。
+ *
+ * 任何绕过 Electron 的原生操作（SWP_SHOWWINDOW、Explorer 重排 Z 序、层级变化等）
+ * 都可能让隐藏中的任务栏重新出现，这里在每个轮询周期做一次幂等校正：
+ * 只隐藏、从不显示，显示只由 showTaskbarWindow() 负责。
+ */
+function enforceTaskbarWindowVisibility() {
+  if (!taskbarWindow || taskbarWindow.isDestroyed()) return;
+  if (taskbarWindowVisible) return;
+  if (!taskbarWindow.isVisible()) return;
+  hideTaskbarWindow({ restoreNative: false });
+}
+
 function startTaskbarPinning() {
   if (taskbarPinTimer) return;
-  taskbarPinTimer = setInterval(() => pinTaskbarWindow(), 900);
+  taskbarPinTimer = setInterval(() => {
+    enforceTaskbarWindowVisibility();
+    pinTaskbarWindow();
+  }, 900);
 }
 
 function stopTaskbarPinning() {
@@ -1789,11 +1821,19 @@ function positionTaskbarWindow() {
 async function pushTaskbarTheme() {
   const account = await resolveAccount();
   const { theme, accentColor } = await resolveUserTheme(account);
+  taskbarPreviewTheme = theme || 'dark';
+  taskbarPreviewAccent = accentColor || '#0078D4';
   if (taskbarWindow && !taskbarWindow.isDestroyed()) {
     taskbarWindow.webContents.send('taskbar:theme', {
       theme,
       accentColor,
       isTaskbarFloating: taskbarFloatingState,
+    });
+  }
+  if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()) {
+    taskbarPreviewWindow.webContents.send('taskbar-preview:theme', {
+      theme: taskbarPreviewTheme,
+      accentColor: taskbarPreviewAccent,
     });
   }
 }
@@ -1841,6 +1881,7 @@ function createTaskbarWindow() {
     // Shell mode has no desktop UI. A queued show from the previous desktop
     // session must not resurrect the taskbar while amsys owns the screen.
     if (isShellMode) {
+      taskbarWindowVisible = false;
       taskbarWindow.hide();
       return;
     }
@@ -1850,7 +1891,9 @@ function createTaskbarWindow() {
   taskbarWindow.on('blur', () => pinTaskbarWindow(true));
   const createdTaskbarWindow = taskbarWindow;
   taskbarWindow.on('closed', () => {
+    destroyTaskbarPreviewWindow();
     stopTaskbarPinning();
+    taskbarWindowVisible = false;
     taskbarPinPending = false;
     taskbarPinInFlight = null;
     taskbarHwnd = 0;
@@ -1864,10 +1907,13 @@ function createTaskbarWindow() {
     }
   });
 
+  // 创建时默认隐藏；只有桌面窗口可见（说明是桌面会话）才显示。
+  taskbarWindowVisible = false;
   positionTaskbarWindow();
   startTaskbarPinning();
   // 仅在桌面窗口可见时显示（登录界面 / 锁屏不显示任务栏）
   if (!isShellMode && dashboardWindow && !dashboardWindow.isDestroyed() && dashboardWindow.isVisible()) {
+    taskbarWindowVisible = true;
     taskbarWindow.show();
     pinTaskbarWindow(true);
     void requestNativeTaskbarHide();
@@ -1888,6 +1934,7 @@ function showTaskbarWindow() {
     createTaskbarWindow();
   }
   if (taskbarWindow && !taskbarWindow.isDestroyed()) {
+    taskbarWindowVisible = true;
     taskbarWindow.show();
     pinTaskbarWindow(true);
     void requestNativeTaskbarHide();
@@ -1955,6 +2002,11 @@ async function openSettingsWindow(settingsData = {}) {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+  const settingsHwnd = registerTaskbarWindow(settingsWindow, {
+    appId: 'amengui:settings',
+    title: '设置',
+  });
+  void refreshTaskbarWindows();
 
   settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
 
@@ -2004,7 +2056,9 @@ async function openSettingsWindow(settingsData = {}) {
   settingsWindow.on('unmaximize', pushMaximized);
 
   settingsWindow.on('closed', () => {
+    unregisterTaskbarWindow(settingsHwnd || settingsWindow);
     settingsWindow = null;
+    void refreshTaskbarWindows();
   });
 
   return { success: true };
@@ -2310,6 +2364,15 @@ ipcMain.handle('storage:quickCleanup', async () => {
 // 设置变更事件
 ipcMain.on('settings:change', (event, change) => {
   console.log('[Settings IPC] settings:change received:', change);
+  if (change && change.type === 'theme') taskbarPreviewTheme = change.value || taskbarPreviewTheme;
+  if (change && change.type === 'accentColor') taskbarPreviewAccent = change.value || taskbarPreviewAccent;
+  if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()
+    && change && (change.type === 'theme' || change.type === 'accentColor')) {
+    taskbarPreviewWindow.webContents.send('taskbar-preview:theme', {
+      theme: taskbarPreviewTheme,
+      accentColor: taskbarPreviewAccent,
+    });
+  }
   // 发送到 dashboard 与独立任务栏窗口
   const windows = BrowserWindow.getAllWindows();
   windows.forEach(win => {
@@ -2389,6 +2452,11 @@ ipcMain.handle('properties:show', async (event, appData) => {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+  const propsHwnd = registerTaskbarWindow(propsWindow, {
+    appId: 'amengui:properties',
+    title: `${appData.name || '应用'} - 属性`,
+  });
+  void refreshTaskbarWindows();
 
   const theme = appData.theme || 'dark';
   const accentColor = appData.accentColor || '#0078D4';
@@ -2498,6 +2566,8 @@ ipcMain.handle('properties:show', async (event, appData) => {
 
   propsWindow.on('closed', () => {
     console.log('[Properties IPC] Properties window closed');
+    unregisterTaskbarWindow(propsHwnd || propsWindow);
+    void refreshTaskbarWindows();
   });
 });
 
@@ -3536,6 +3606,28 @@ var windowServer = new PwshServer(WINDOWS_SCRIPT);
 var taskbarWindowsTimer = null;
 let lastTaskbarWindowsKey = '';
 let lastTaskbarWindowsGroups = [];
+// Electron's own windows are normally excluded from the running-app list.
+// Settings and Properties are real user-facing windows, so keep an explicit
+// HWND registry for the two window types that should appear in the taskbar.
+var taskbarWindowMeta = new Map();
+
+function registerTaskbarWindow(window, meta = {}) {
+  const hwnd = getNativeWindowHandleNumber(window);
+  if (!hwnd) return 0;
+  taskbarWindowMeta.set(hwnd, {
+    appId: meta.appId || '',
+    title: meta.title || '',
+    processName: meta.processName || 'AmengUI',
+  });
+  return hwnd;
+}
+
+function unregisterTaskbarWindow(windowOrHwnd) {
+  const hwnd = typeof windowOrHwnd === 'number'
+    ? windowOrHwnd
+    : getNativeWindowHandleNumber(windowOrHwnd);
+  if (hwnd) taskbarWindowMeta.delete(hwnd);
+}
 
 /**
  * 将窗口列表按应用身份分组堆叠：
@@ -3590,16 +3682,21 @@ async function refreshTaskbarWindows() {
       if (!w || !w.hwnd) continue;
       const hwnd = Number(w.hwnd);
       if (!hwnd || seen.has(hwnd)) continue;
-      // 排除 AmengUI 自身进程的所有窗口（桌面/设置/控制中心/浮层等）
-      if (Number(w.pid) === process.pid) continue;
+      const ownWindow = Number(w.pid) === process.pid;
+      const ownMeta = ownWindow ? taskbarWindowMeta.get(hwnd) : null;
+      // 排除 AmengUI 自身的桌面、任务栏、浮层等窗口，只放行明确登记的
+      // 设置与属性窗口。这样不会把消息面板、控制中心或登录窗口带进来。
+      if (ownWindow && !ownMeta) continue;
       seen.add(hwnd);
       windows.push({
         hwnd,
         pid: Number(w.pid),
-        title: String(w.title || ''),
-        processName: String(w.processName || ''),
+        title: String((ownMeta && ownMeta.title) || w.title || ''),
+        processName: String((ownMeta && ownMeta.processName) || w.processName || ''),
         exePath: String(w.exePath || ''),
-        appId: String(w.appId || ''),
+        // Use a logical identity for AmengUI's independent windows. Without
+        // this, all Electron windows would collapse into one exe-based group.
+        appId: String((ownMeta && ownMeta.appId) || w.appId || ''),
         iconData: w.iconData || null,
         minimized: !!w.minimized,
         focused: !!w.focused,
@@ -3669,6 +3766,213 @@ ipcMain.handle('taskbar:minimize', async (_, hwnd) => {
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+// ==================== 任务栏悬停预览 ====================
+let taskbarPreviewWindow = null;
+let taskbarPreviewHideTimer = null;
+let taskbarPreviewRequest = 0;
+let taskbarPreviewTheme = 'dark';
+let taskbarPreviewAccent = '#0078D4';
+let taskbarPreviewReady = false;
+let taskbarPreviewPendingData = null;
+
+function clearTaskbarPreviewHideTimer() {
+  if (taskbarPreviewHideTimer) {
+    clearTimeout(taskbarPreviewHideTimer);
+    taskbarPreviewHideTimer = null;
+  }
+}
+
+function normalizeTaskbarPreviewGroup(group) {
+  const source = group && typeof group === 'object' ? group : {};
+  const windows = Array.isArray(source.windows) ? source.windows : [];
+  return {
+    key: String(source.key || ''),
+    title: String(source.title || source.processName || '窗口'),
+    icon: source.icon || null,
+    focused: !!source.focused,
+    windows: windows
+      .filter((item) => item && Number(item.hwnd) > 0)
+      .slice(0, 8)
+      .map((item) => ({
+        hwnd: Number(item.hwnd),
+        title: String(item.title || source.title || '窗口'),
+        processName: String(item.processName || source.processName || ''),
+        iconData: item.iconData || source.icon || null,
+        minimized: !!item.minimized,
+        focused: !!item.focused,
+      })),
+  };
+}
+
+async function captureTaskbarPreviewImages(windows) {
+  const result = new Map();
+  const targets = new Set(windows.map((item) => String(item.hwnd)));
+  if (targets.size === 0) return result;
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 520, height: 300 },
+      fetchWindowIcons: false,
+    });
+    for (const source of sources) {
+      const match = String(source.id || '').match(/^window:(\d+)(?::|$)/i);
+      if (!match || !targets.has(match[1])) continue;
+      const thumbnail = source.thumbnail;
+      if (!thumbnail || thumbnail.isEmpty()) continue;
+      result.set(match[1], thumbnail.toDataURL());
+    }
+  } catch (error) {
+    // Protected windows and some PE environments do not expose desktop
+    // capture. The preview renderer will use the application's icon fallback.
+    console.warn('[Taskbar preview] capture failed:', error.message);
+  }
+  return result;
+}
+
+function getTaskbarPreviewWindowSize(count) {
+  const columns = Math.max(1, Math.min(4, count));
+  return { width: Math.min(980, columns * 244 + 24), height: 230 };
+}
+
+function positionTaskbarPreview(anchor, width, height) {
+  if (!taskbarPreviewWindow || taskbarPreviewWindow.isDestroyed()) return;
+  const bar = taskbarWindow && !taskbarWindow.isDestroyed()
+    ? taskbarWindow.getBounds()
+    : screen.getPrimaryDisplay().bounds;
+  const safeAnchor = anchor && typeof anchor === 'object' ? anchor : {};
+  const centerX = bar.x + (Number(safeAnchor.x) || 0) + ((Number(safeAnchor.width) || 40) / 2);
+  const display = screen.getDisplayNearestPoint({ x: centerX, y: bar.y });
+  const bounds = display.workArea;
+  const x = Math.max(bounds.x + 8, Math.min(
+    Math.round(centerX - width / 2),
+    bounds.x + bounds.width - width - 8
+  ));
+  const y = Math.max(bounds.y + 8, bar.y - height - 8);
+  taskbarPreviewWindow.setBounds({ x, y, width, height });
+}
+
+function ensureTaskbarPreviewWindow() {
+  if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()) {
+    return taskbarPreviewWindow;
+  }
+  taskbarPreviewWindow = new BrowserWindow({
+    width: 300,
+    height: 230,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    alwaysOnTop: true,
+    focusable: false,
+    skipTaskbar: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  try { taskbarPreviewWindow.setAlwaysOnTop(true, 'screen-saver'); } catch {}
+  taskbarPreviewWindow.loadFile(path.join(__dirname, 'taskbar-preview.html'));
+  taskbarPreviewWindow.webContents.on('did-finish-load', () => {
+    taskbarPreviewReady = true;
+    if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()) {
+      taskbarPreviewWindow.webContents.send('taskbar-preview:theme', {
+        theme: currentTaskbarTheme(),
+        accentColor: currentTaskbarAccent(),
+      });
+      if (taskbarPreviewPendingData) {
+        taskbarPreviewWindow.webContents.send('taskbar-preview:data', taskbarPreviewPendingData);
+        taskbarPreviewPendingData = null;
+      }
+    }
+  });
+  taskbarPreviewWindow.on('closed', () => {
+    clearTaskbarPreviewHideTimer();
+    taskbarPreviewReady = false;
+    taskbarPreviewPendingData = null;
+    taskbarPreviewWindow = null;
+  });
+  return taskbarPreviewWindow;
+}
+
+function destroyTaskbarPreviewWindow() {
+  clearTaskbarPreviewHideTimer();
+  taskbarPreviewRequest++;
+  if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()) {
+    try { taskbarPreviewWindow.destroy(); } catch {}
+  }
+  taskbarPreviewWindow = null;
+  taskbarPreviewReady = false;
+  taskbarPreviewPendingData = null;
+}
+
+function currentTaskbarTheme() {
+  return taskbarPreviewTheme;
+}
+
+function currentTaskbarAccent() {
+  return taskbarPreviewAccent;
+}
+
+ipcMain.handle('taskbar:preview:show', async (_, payload = {}) => {
+  const requestId = ++taskbarPreviewRequest;
+  clearTaskbarPreviewHideTimer();
+  if (isShellMode || !taskbarWindow || taskbarWindow.isDestroyed() || !taskbarWindow.isVisible()) {
+    return { success: false };
+  }
+  const group = normalizeTaskbarPreviewGroup(payload.group);
+  if (group.windows.length === 0) return { success: false };
+  const preview = ensureTaskbarPreviewWindow();
+  const size = getTaskbarPreviewWindowSize(group.windows.length);
+  positionTaskbarPreview(payload.anchor, size.width, size.height);
+  const images = await captureTaskbarPreviewImages(group.windows);
+  if (requestId !== taskbarPreviewRequest || isShellMode
+    || !taskbarWindow || taskbarWindow.isDestroyed() || !taskbarWindow.isVisible()
+    || !preview || preview.isDestroyed()) {
+    return { success: false, stale: true };
+  }
+  const windows = group.windows.map((item) => ({
+    ...item,
+    thumbnail: images.get(String(item.hwnd)) || null,
+  }));
+  const previewData = {
+    ...group,
+    windows,
+    width: size.width,
+    height: size.height,
+  };
+  taskbarPreviewPendingData = previewData;
+  if (taskbarPreviewReady && !preview.webContents.isLoading()) {
+    preview.webContents.send('taskbar-preview:data', previewData);
+    taskbarPreviewPendingData = null;
+  }
+  if (!preview.isVisible()) preview.showInactive();
+  return { success: true };
+});
+
+ipcMain.on('taskbar:preview:hide', () => {
+  taskbarPreviewRequest++;
+  clearTaskbarPreviewHideTimer();
+  taskbarPreviewHideTimer = setTimeout(() => {
+    taskbarPreviewHideTimer = null;
+    if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()) taskbarPreviewWindow.hide();
+  }, 240);
+});
+
+ipcMain.on('taskbar:preview:enter', clearTaskbarPreviewHideTimer);
+
+ipcMain.on('taskbar:preview:leave', () => {
+  taskbarPreviewRequest++;
+  clearTaskbarPreviewHideTimer();
+  taskbarPreviewHideTimer = setTimeout(() => {
+    taskbarPreviewHideTimer = null;
+    if (taskbarPreviewWindow && !taskbarPreviewWindow.isDestroyed()) taskbarPreviewWindow.hide();
+  }, 180);
 });
 
 // 能力探测缓存（10 分钟；应用启动时已后台预热）

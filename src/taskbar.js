@@ -113,6 +113,32 @@ function updateNotifyBadge(data) {
 // ==================== 运行中窗口（前台程序） ====================
 
 let taskbarPopupOpen = false;
+let taskbarPreviewHideTimer = null;
+let taskbarPreviewHoverToken = 0;
+
+function cancelTaskbarPreviewHide() {
+  if (taskbarPreviewHideTimer) {
+    clearTimeout(taskbarPreviewHideTimer);
+    taskbarPreviewHideTimer = null;
+  }
+}
+
+function scheduleTaskbarPreviewHide() {
+  cancelTaskbarPreviewHide();
+  taskbarPreviewHideTimer = setTimeout(() => {
+    taskbarPreviewHideTimer = null;
+    window.electronAPI.taskbar.previewHide();
+  }, 220);
+}
+
+function showTaskbarPreview(button, group) {
+  cancelTaskbarPreviewHide();
+  const rect = button.getBoundingClientRect();
+  window.electronAPI.taskbar.previewShow(group, {
+    x: rect.left,
+    width: rect.width,
+  }).catch(() => {});
+}
 
 function closeTaskbarWindowPopup() {
   const popup = document.getElementById('taskbar-window-popup');
@@ -155,6 +181,8 @@ function renderTaskbarWindows(data) {
     }
 
     btn.addEventListener('click', () => {
+      cancelTaskbarPreviewHide();
+      window.electronAPI.taskbar.previewHide();
       if (g.windows.length <= 1) {
         const w = g.windows[0];
         if (w.focused && !w.minimized) {
@@ -165,6 +193,19 @@ function renderTaskbarWindows(data) {
       } else {
         toggleTaskbarWindowPopup(btn, g);
       }
+    });
+    // Windows-style taskbar behavior: hovering an icon opens a preview above
+    // the bar; a short grace period lets the pointer travel into the preview.
+    btn.addEventListener('mouseenter', () => {
+      cancelTaskbarPreviewHide();
+      const token = ++taskbarPreviewHoverToken;
+      setTimeout(() => {
+        if (token === taskbarPreviewHoverToken) showTaskbarPreview(btn, g);
+      }, 140);
+    });
+    btn.addEventListener('mouseleave', () => {
+      taskbarPreviewHoverToken++;
+      scheduleTaskbarPreviewHide();
     });
     container.appendChild(btn);
   });
@@ -363,6 +404,12 @@ function bindTaskbarActions() {
   document.addEventListener('click', (e) => {
     if (taskbarPopupOpen && !e.target.closest('#taskbar-window-popup')) {
       closeTaskbarWindowPopup();
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      cancelTaskbarPreviewHide();
+      window.electronAPI.taskbar.previewHide();
     }
   });
 
